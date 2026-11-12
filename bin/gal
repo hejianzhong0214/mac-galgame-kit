@@ -513,8 +513,9 @@ pick_exe() {
 
   # 其他候选不在这个目录下 → 包里不止一个游戏
   local other
+  # 注意：bash 3.2 不能在 $(...) 里写 case，用前缀比较代替
   other="$(printf '%s\n' "$cands" | while IFS= read -r c; do
-             case "$c" in "$gdir"/*) ;; *) dirname "$c" ;; esac
+             if [ "${c#"$gdir"/}" = "$c" ]; then dirname "$c"; fi
            done | sort -u)"
   if [ -n "$other" ]; then
     warn "包里有多个游戏，请先解压，再把单个游戏的文件夹拖进来:"
