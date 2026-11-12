@@ -1,0 +1,45 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Wine\Mac Driver]
+"RetinaMode"="n"
+
+[HKEY_CURRENT_USER\Control Panel\Desktop]
+"FontSmoothing"="2"
+"FontSmoothingType"=dword:00000002
+"FontSmoothingGamma"=dword:00000578
+"FontSmoothingOrientation"=dword:00000001
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
+"MS Gothic"="Hiragino Sans"
+"MS PGothic"="Hiragino Sans"
+"MS UI Gothic"="Hiragino Sans"
+"ＭＳ ゴシック"="Hiragino Sans"
+"ＭＳ Ｐゴシック"="Hiragino Sans"
+"Meiryo"="Hiragino Sans"
+"Meiryo UI"="Hiragino Sans"
+"メイリオ"="Hiragino Sans"
+"Yu Gothic"="Hiragino Sans"
+"Yu Gothic UI"="Hiragino Sans"
+"游ゴシック"="Hiragino Sans"
+"MS Mincho"="Hiragino Mincho ProN"
+"MS PMincho"="Hiragino Mincho ProN"
+"ＭＳ 明朝"="Hiragino Mincho ProN"
+"ＭＳ Ｐ明朝"="Hiragino Mincho ProN"
+"Yu Mincho"="Hiragino Mincho ProN"
+"游明朝"="Hiragino Mincho ProN"
+"SimSun"="Songti SC"
+"NSimSun"="Songti SC"
+"宋体"="Songti SC"
+"新宋体"="Songti SC"
+"SimHei"="PingFang SC"
+"黑体"="PingFang SC"
+"Microsoft YaHei"="PingFang SC"
+"Microsoft YaHei UI"="PingFang SC"
+"微软雅黑"="PingFang SC"
+"MingLiU"="PingFang TC"
+"PMingLiU"="PingFang TC"
+"Microsoft JhengHei"="PingFang TC"
+"Gulim"="Apple SD Gothic Neo"
+"Dotum"="Apple SD Gothic Neo"
+"Batang"="AppleMyungjo"
+"Malgun Gothic"="Apple SD Gothic Neo"
