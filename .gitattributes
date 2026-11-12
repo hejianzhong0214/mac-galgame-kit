@@ -1,2 +1,3 @@
 * text=auto eol=lf
 bin/gal text eol=lf
+app/build.sh text eol=lf

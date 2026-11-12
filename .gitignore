@@ -25,3 +25,6 @@
 *.7z
 
 .DS_Store
+
+# GalBox 编译产物
+/app/build/

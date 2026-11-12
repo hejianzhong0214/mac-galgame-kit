@@ -79,6 +79,10 @@ usage() {
   cat <<'EOF'
 用法: gal <命令> [参数]
 
+  import [-l 语言] [-n 名字] [--start] <exe | 游戏文件夹 | zip>
+                              一键导入：识别引擎、建隔离容器、拷贝游戏、Unity 自动装 DXVK、生成启动器
+  list                        列出导入的游戏
+  remove <名字>               删除导入的游戏（只删容器里的副本，原始文件不动）
   doctor                      检查环境
   setup [--wine-tarball 文件]  安装 Rosetta 2 和 Wine，并创建默认容器（可用本地包离线安装）
   detect <游戏目录>           识别游戏引擎并给出推荐路线
@@ -319,21 +323,28 @@ cmd_launcher() {
   exe="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
   shift
 
+  write_launcher "$name" run -b "$OPT_BOTTLE" -l "$OPT_LANG" "$exe" "$@"
+  say "双击它启动，或在终端/SSH 里执行: gal start $name"
+}
+
+# 写 ~/Games/gal/launch/<名字>.command，内容是 exec gal <参数...>
+write_launcher() {
+  local name="$1"
+  shift
   local self
   self="$SCRIPT_DIR/$(basename "$0")"
   mkdir -p "$GAL_HOME/launch" "$GAL_HOME/logs"
   local f="$GAL_HOME/launch/$name.command"
   {
     echo '#!/bin/bash'
-    echo "# 由 gal launcher 生成，可双击运行；日志在 $GAL_HOME/logs/$name.log"
-    printf 'exec %q run -b %q -l %q %q' "$self" "$OPT_BOTTLE" "$OPT_LANG" "$exe"
+    echo "# 由 gal 生成，可双击运行；日志在 $GAL_HOME/logs/$name.log"
+    printf 'exec %q' "$self"
     local a
     for a in "$@"; do printf ' %q' "$a"; done
     printf ' > %q 2>&1\n' "$GAL_HOME/logs/$name.log"
   } > "$f"
   chmod +x "$f"
-  say "已生成 $f"
-  say "双击它启动，或在终端/SSH 里执行: gal start $name"
+  say "已生成启动器 $f"
 }
 
 cmd_start() {
@@ -402,64 +413,338 @@ cmd_nw() {
   exec "$app/Contents/MacOS/nwjs" "$d"
 }
 
+# 识别引擎，输出一个关键字
+detect_engine() {
+  local d="$1"
+  _has() { [ -n "$(find "$d" -maxdepth 3 -iname "$1" -print -quit 2>/dev/null)" ]; }
+
+  if   _has '*.rpa' || _has '*.rpyc' || _has 'renpy'; then echo renpy
+  elif _has '*.app'; then echo macapp
+  elif _has 'rmmz_core.js'; then echo mz
+  elif _has 'rpg_core.js'; then echo mv
+  elif _has '*.rgss3a'; then echo rgss3
+  elif _has '*.rgss2a'; then echo rgss2
+  elif _has '*.rgssad'; then echo rgss1
+  elif _has 'tyrano'; then echo tyrano
+  elif _has 'nscript.dat' || _has 'arc.nsa' || _has 'nscript.___'; then echo nscripter
+  elif _has '*.xp3'; then echo kirikiri
+  elif _has 'Scene.pck' || _has 'Gameexe.dat' || _has 'SiglusEngine*.exe'; then echo siglus
+  elif _has 'Seen.txt' || _has 'RealLive.exe'; then echo reallive
+  elif _has 'UnityPlayer.dll' || _has 'globalgamemanagers' || _has '*_Data'; then echo unity
+  elif _has 'cs2.exe' || _has '*.int'; then echo catsystem2
+  elif _has 'BGI.exe' || _has 'BHVC.exe'; then echo bgi
+  elif _has '*.wolf'; then echo wolf
+  elif _has 'nw.dll' || _has 'package.nw' || _has 'package.json'; then echo nwjs
+  elif _has '*.exe'; then echo exe
+  else echo unknown
+  fi
+}
+
+engine_title() {
+  case "$1" in
+    renpy) echo "Ren'Py" ;;
+    macapp) echo "自带 macOS 版" ;;
+    mz) echo "RPG Maker MZ" ;;
+    mv) echo "RPG Maker MV" ;;
+    rgss3) echo "RPG Maker VX Ace" ;;
+    rgss2) echo "RPG Maker VX" ;;
+    rgss1) echo "RPG Maker XP" ;;
+    tyrano) echo "TyranoScript" ;;
+    nscripter) echo "NScripter" ;;
+    kirikiri) echo "吉里吉里" ;;
+    siglus) echo "SiglusEngine" ;;
+    reallive) echo "RealLive" ;;
+    unity) echo "Unity" ;;
+    catsystem2) echo "CatSystem2" ;;
+    bgi) echo "BGI / Ethornell" ;;
+    wolf) echo "Wolf RPG Editor" ;;
+    nwjs) echo "NW.js 网页游戏" ;;
+    exe) echo "未识别的 Windows 游戏" ;;
+    *) echo "未知" ;;
+  esac
+}
+
 cmd_detect() {
   local d="${1:-.}"
   [ -d "$d" ] || die "用法: gal detect <游戏目录>"
 
-  # 目录内（最多 3 层）是否存在匹配名字的文件或目录
-  has() {
-    find "$d" -maxdepth 3 -iname "$1" -print -quit 2>/dev/null | grep -q .
-  }
+  local e
+  e="$(detect_engine "$d")"
   report() {
-    say "引擎: $1"
-    say "路线: $2"
-    if [ -n "${3:-}" ]; then say "做法: $3"; fi
+    say "引擎: $(engine_title "$e")"
+    say "路线: $1"
+    if [ -n "${2:-}" ]; then say "做法: $2"; fi
   }
 
-  if has '*.rpa' || has '*.rpyc' || has 'renpy'; then
-    if has '*.app'; then
-      report "Ren'Py" "原生" "直接打开目录里的 .app"
-    else
-      report "Ren'Py" "原生" "用对应大版本的 Ren'Py SDK 启动（见 docs/engines.md）"
-    fi
-  elif has '*.app'; then
-    report "自带 macOS 版" "原生" "直接打开 .app；用 file 命令确认里面是 arm64 还是 x86_64"
-  elif has 'rmmz_core.js'; then
-    report "RPG Maker MZ" "原生 NW.js" "gal nw \"$d\""
-  elif has 'rpg_core.js'; then
-    report "RPG Maker MV" "原生 NW.js" "gal nw \"$d\""
-  elif has '*.rgss3a'; then
-    report "RPG Maker VX Ace (RGSS3)" "原生 mkxp-z，或 Wine" "见 docs/engines.md"
-  elif has '*.rgss2a'; then
-    report "RPG Maker VX (RGSS2)" "原生 mkxp-z，或 Wine" "见 docs/engines.md"
-  elif has '*.rgssad'; then
-    report "RPG Maker XP (RGSS1)" "原生 mkxp-z，或 Wine" "见 docs/engines.md"
-  elif has 'tyrano'; then
-    report "TyranoScript" "原生 NW.js" "gal nw <含 package.json 的目录>"
-  elif has 'nscript.dat' || has 'arc.nsa' || has 'nscript.___'; then
-    report "NScripter" "原生 ONScripter，或 Wine" "见 docs/engines.md"
-  elif has '*.xp3'; then
-    report "吉里吉里 (Kirikiri)" "Wine，日文区域" "gal run <游戏exe>"
-  elif has 'Scene.pck' || has 'Gameexe.dat' || has 'SiglusEngine*.exe'; then
-    report "SiglusEngine" "Wine，日文区域" "gal run <游戏exe>"
-  elif has 'Seen.txt' || has 'RealLive.exe'; then
-    report "RealLive" "Wine，日文区域" "gal run <游戏exe>"
-  elif has 'UnityPlayer.dll' || has 'globalgamemanagers' || has '*_Data'; then
-    report "Unity" "Wine；3D 游戏用 CrossOver 或 Sikarugir 的 D3DMetal" "gal run <游戏exe>"
-  elif has 'cs2.exe' || has '*.int'; then
-    report "CatSystem2" "Wine，日文区域" "gal run <游戏exe>"
-  elif has 'BGI.exe' || has 'BHVC.exe'; then
-    report "BGI / Ethornell" "Wine，日文区域" "gal run <游戏exe>"
-  elif has '*.wolf'; then
-    report "Wolf RPG Editor" "Wine，日文区域" "gal run Game.exe"
-  elif has 'nw.dll' || has 'package.nw' || has 'package.json'; then
-    report "NW.js / Electron 类网页游戏" "优先原生 NW.js" "gal nw <含 package.json 的目录>；不行再 gal run"
-  elif has '*.exe'; then
-    report "未识别的 Windows 游戏" "Wine" "gal run <游戏exe>；日文游戏保持默认区域，其他加 -l none"
-  else
-    warn "没有识别出引擎，目录里也没有 exe"
-    return 1
+  case "$e" in
+    renpy)
+      if [ -n "$(find "$d" -maxdepth 3 -iname '*.app' -print -quit)" ]; then
+        report "原生" "直接打开目录里的 .app"
+      else
+        report "原生 Ren'Py SDK，或 Wine" "见 docs/engines.md；省事就 gal import"
+      fi ;;
+    macapp) report "原生" "直接打开 .app；用 file 命令确认里面是 arm64 还是 x86_64" ;;
+    mz|mv) report "原生 NW.js" "gal import \"$d\"（或 gal nw \"$d\"）" ;;
+    rgss1|rgss2|rgss3) report "原生 mkxp-z，或 Wine" "见 docs/engines.md；省事就 gal import" ;;
+    tyrano|nwjs) report "原生 NW.js，不行再 Wine" "gal import \"$d\"" ;;
+    nscripter) report "原生 ONScripter，或 Wine" "见 docs/engines.md；省事就 gal import" ;;
+    unity) report "Wine + DXVK" "gal import \"$d\"（会自动装 DXVK）" ;;
+    kirikiri|siglus|reallive|catsystem2|bgi|wolf) report "Wine，日文区域" "gal import \"$d\"" ;;
+    exe) report "Wine" "gal import \"$d\"；日文游戏保持默认区域，其他加 -l none" ;;
+    *) warn "没有识别出引擎，目录里也没有 exe"; return 1 ;;
+  esac
+}
+
+# 在 root 下找主程序 exe；包里有多个游戏时返回 2 并列出
+pick_exe() {
+  local root="$1"
+  local cands
+  cands="$(find "$root" -maxdepth 6 -type f -iname '*.exe' \
+             -not -path '*/MonoBleedingEdge/*' -not -path '*/_CommonRedist/*' \
+             -not -path '*/[Rr]edist/*' -not -path '*/__MACOSX/*' 2>/dev/null \
+           | grep -viE '/[^/]*(crashhandler|unins|setup|install|redist|dxweb|activate|crashpad|updater|update|notification_helper|config|启动器|激活)[^/]*\.exe$' \
+           || true)"
+  [ -n "$cands" ] || return 1
+
+  # 最浅的候选所在目录就是游戏目录
+  local first gdir
+  first="$(printf '%s\n' "$cands" | awk -F/ '{ print NF "\t" $0 }' | sort -n | head -1 | cut -f2-)"
+  gdir="$(dirname "$first")"
+
+  # 其他候选不在这个目录下 → 包里不止一个游戏
+  local other
+  other="$(printf '%s\n' "$cands" | while IFS= read -r c; do
+             case "$c" in "$gdir"/*) ;; *) dirname "$c" ;; esac
+           done | sort -u)"
+  if [ -n "$other" ]; then
+    warn "包里有多个游戏，请先解压，再把单个游戏的文件夹拖进来:"
+    { echo "$gdir"; printf '%s\n' "$other"; } | sort -u | sed "s|^$root/||; s|^|    |" >&2
+    return 2
   fi
+
+  # 同一目录里：Unity 选有同名 _Data 的那个，否则选最大的
+  local c best="" bestsize=-1 s
+  while IFS= read -r c; do
+    [ "$(dirname "$c")" = "$gdir" ] || continue
+    if [ -d "${c%.*}_Data" ]; then best="$c"; break; fi
+    s="$(stat -f %z "$c")"
+    if [ "$s" -gt "$bestsize" ]; then best="$c"; bestsize="$s"; fi
+  done <<EOF
+$cands
+EOF
+  echo "$best"
+}
+
+# 解压 zip；Windows 上打的包文件名多是 GBK / Shift-JIS，用 python 正确解码
+extract_zip() {
+  local zip="$1" out="$2"
+  mkdir -p "$out"
+  if /usr/bin/python3 -c 1 >/dev/null 2>&1; then
+    /usr/bin/python3 -I - "$zip" "$out" <<'PY'
+import os, shutil, sys, zipfile
+zpath, out = sys.argv[1], os.path.realpath(sys.argv[2])
+z = zipfile.ZipFile(zpath)
+names = [i.filename for i in z.infolist() if not i.flag_bits & 0x800]
+enc = None
+for cand in ("gbk", "shift_jis", "cp437"):
+    try:
+        for n in names: n.encode("cp437").decode(cand)
+        enc = cand; break
+    except Exception:
+        pass
+for i in z.infolist():
+    n = i.filename
+    if not i.flag_bits & 0x800 and enc and enc != "cp437":
+        n = n.encode("cp437").decode(enc)
+    dst = os.path.realpath(os.path.join(out, n))
+    if not dst.startswith(out + os.sep):
+        continue  # 拒绝 ../ 之类的路径
+    if n.endswith("/"):
+        os.makedirs(dst, exist_ok=True); continue
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with z.open(i) as s, open(dst, "wb") as d:
+        shutil.copyfileobj(s, d)
+PY
+  else
+    ditto -x -k "$zip" "$out"
+  fi
+}
+
+# 断开容器和 Mac 主目录的映射：去掉 Z: 盘，“文档/桌面”等改成容器内的普通文件夹
+isolate_bottle() {
+  local p="$1"
+  rm -f "$p/dosdevices/z:"
+  local u="$p/drive_c/users/$USER" d
+  for d in Desktop Documents Downloads Music Pictures Videos; do
+    if [ -L "$u/$d" ]; then rm "$u/$d"; mkdir -p "$u/$d"; fi
+  done
+}
+
+safe_name() {
+  local n
+  n="$(printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | sed -E 's/-+/-/g; s/^[-.]+//; s/-+$//')"
+  case "$n" in ""|-) n="game-$(date +%Y%m%d-%H%M%S)" ;; esac
+  local base="$n" i=2
+  while [ -e "$BOTTLES/$n" ] || [ -e "$GAL_HOME/games/$n" ] || [ -e "$GAL_HOME/launch/$n.meta" ]; do
+    n="$base-$i"; i=$((i + 1))
+  done
+  echo "$n"
+}
+
+find_dxvk() {
+  find "$GAL_HOME/downloads" -maxdepth 1 -name 'dxvk-macOS-*.tar.gz' -not -name '*builtin*' 2>/dev/null | sort | tail -1
+}
+
+# 一键导入：exe / 游戏文件夹 / zip → 隔离容器 + 启动器
+cmd_import() {
+  local lang="ja" name="" start=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -l) [ $# -ge 2 ] || die "-l 后面要跟语言"; lang="$2"; shift 2 ;;
+      -n) [ $# -ge 2 ] || die "-n 后面要跟名字"; name="$2"; shift 2 ;;
+      --start) start=1; shift ;;
+      -*) die "未知选项: $1" ;;
+      *) break ;;
+    esac
+  done
+  [ $# -eq 1 ] || die "用法: gal import [-l 语言] [-n 名字] [--start] <exe | 游戏文件夹 | zip>"
+  locale_of "$lang" >/dev/null
+
+  local src="$1"
+  [ -e "$src" ] || die "找不到: $src"
+  src="$(cd "$(dirname "$src")" && pwd)/$(basename "$src")"
+
+  mkdir -p "$GAL_HOME/tmp" "$GAL_HOME/launch" "$GAL_HOME/logs"
+  IMPORT_STAGE=""
+  local root exe=""
+  case "$src" in
+    *.zip|*.ZIP)
+      IMPORT_STAGE="$(mktemp -d "$GAL_HOME/tmp/import.XXXXXX")"
+      say "解压 $(basename "$src")"
+      extract_zip "$src" "$IMPORT_STAGE/x"
+      root="$IMPORT_STAGE/x" ;;
+    *.exe|*.EXE)
+      exe="$src"; root="$(dirname "$src")" ;;
+    *)
+      [ -d "$src" ] || die "只支持 exe、文件夹或 zip: $src"
+      root="$src" ;;
+  esac
+  # 出错时清理解压的临时目录
+  trap 'if [ -n "${IMPORT_STAGE:-}" ]; then rm -rf "$IMPORT_STAGE"; fi' EXIT
+
+  if [ -z "$exe" ]; then
+    local rc=0
+    exe="$(pick_exe "$root")" || rc=$?
+    [ "$rc" -ne 2 ] || exit 1
+    [ -n "$exe" ] || die "没有找到游戏的 exe"
+  fi
+  local gdir
+  gdir="$(dirname "$exe")"
+  case "$gdir" in
+    "$HOME"|"$HOME/Desktop"|"$HOME/Downloads"|"$HOME/Documents"|/|/Applications)
+      die "游戏要放在单独的文件夹里（现在在 $gdir），整个文件夹会被拷进容器" ;;
+  esac
+
+  local title rel engine
+  title="$(basename "$gdir")"
+  rel="${exe#"$gdir"/}"
+  engine="$(detect_engine "$gdir")"
+  [ -n "$name" ] || name="$(basename "$exe" .exe)"
+  name="$(safe_name "$name")"
+  say "游戏: $title"
+  say "引擎: $(engine_title "$engine")    主程序: $rel"
+
+  local route="wine" dest bottle=""
+  if { [ "$engine" = mv ] || [ "$engine" = mz ] || [ "$engine" = tyrano ]; } && [ -f "$gdir/package.json" ]; then
+    route="nw"
+  fi
+
+  if [ "$route" = nw ]; then
+    dest="$GAL_HOME/games/$name"
+    mkdir -p "$GAL_HOME/games"
+  else
+    need_wine
+    bottle="$name"
+    cmd_bottle "$bottle"
+    isolate_bottle "$BOTTLES/$bottle"
+    dest="$BOTTLES/$bottle/drive_c/Games/$name"
+    mkdir -p "$BOTTLES/$bottle/drive_c/Games"
+  fi
+
+  say "拷贝游戏文件（$(du -sh "$gdir" | cut -f1)）"
+  if [ -n "$IMPORT_STAGE" ]; then
+    mv "$gdir" "$dest"
+  else
+    ditto "$gdir" "$dest"
+  fi
+  xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+
+  if [ "$route" = nw ]; then
+    # NW.js 拒绝空的 name 字段
+    perl -0pi -e 's/"name"\s*:\s*""/"name": "game"/' "$dest/package.json"
+    write_launcher "$name" nw "$dest"
+  else
+    if [ "$engine" = unity ]; then
+      local dx
+      dx="$(find_dxvk)"
+      if [ -n "$dx" ]; then
+        say "Unity 游戏，安装 DXVK"
+        cmd_dxvk -b "$bottle" "$dx"
+      else
+        warn "Unity 游戏通常需要 DXVK，但 $GAL_HOME/downloads 里没有 dxvk-macOS-*.tar.gz"
+        warn "下载: https://github.com/Gcenx/DXVK-macOS/releases，放进去后执行: gal dxvk -b $bottle <文件>"
+      fi
+    fi
+    write_launcher "$name" run -b "$bottle" -l "$lang" "$dest/$rel"
+  fi
+
+  {
+    echo "title=$title"
+    echo "engine=$engine"
+    echo "route=$route"
+    echo "lang=$lang"
+    echo "bottle=$bottle"
+    echo "dir=$dest"
+    echo "exe=$rel"
+    echo "source=$src"
+    echo "imported=$(date '+%Y-%m-%d %H:%M')"
+  } > "$GAL_HOME/launch/$name.meta"
+
+  say "导入完成: $name"
+  if [ "$start" = 1 ]; then cmd_start "$name"; fi
+}
+
+# 列出导入的游戏：名字<TAB>标题<TAB>引擎
+cmd_list() {
+  local m n
+  for m in "$GAL_HOME"/launch/*.meta; do
+    [ -f "$m" ] || continue
+    n="$(basename "$m" .meta)"
+    printf '%s\t%s\t%s\n' "$n" "$(meta_get "$m" title)" "$(engine_title "$(meta_get "$m" engine)")"
+  done
+}
+
+meta_get() {
+  sed -n "s/^$2=//p" "$1" | head -1
+}
+
+# 删除导入的游戏：容器（含游戏副本）、启动器、日志；原始文件不动
+cmd_remove() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "用法: gal remove <名字>"
+  local m="$GAL_HOME/launch/$name.meta"
+  [ -f "$m" ] || die "没有导入过 $name"
+  local bottle dir
+  bottle="$(meta_get "$m" bottle)"
+  dir="$(meta_get "$m" dir)"
+  if [ -n "$bottle" ] && [ -d "$BOTTLES/$bottle" ]; then
+    WINEPREFIX="$BOTTLES/$bottle" wineserver -k 2>/dev/null || true
+    rm -rf "${BOTTLES:?}/$bottle"
+  elif [ -n "$dir" ]; then
+    case "$dir" in "$GAL_HOME"/games/?*) rm -rf "$dir" ;; esac
+  fi
+  rm -f "$GAL_HOME/launch/$name.meta" "$GAL_HOME/launch/$name.command" "$GAL_HOME/logs/$name.log"
+  say "已删除 $name（原始文件没动）"
 }
 
 main() {
@@ -478,6 +763,9 @@ main() {
     launcher)     cmd_launcher "$@" ;;
     dxvk)         cmd_dxvk "$@" ;;
     start)        cmd_start "$@" ;;
+    import)       cmd_import "$@" ;;
+    list)         cmd_list "$@" ;;
+    remove)       cmd_remove "$@" ;;
     ""|-h|--help|help) usage ;;
     *)            usage; die "未知命令: $cmd" ;;
   esac
