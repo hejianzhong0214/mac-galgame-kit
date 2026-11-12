@@ -144,7 +144,9 @@ MacBook Air 没有风扇，持续高负载会降频。详细说明见 [docs/perf
 
 另外用一个 Unity 6 游戏验证了 `gal launcher` / `gal start` 和 DXVK 路线：画面和日文字体显示正常。GalBox 的编译、通过“打开方式”导入、`gal import` 的文件夹和 zip 导入（含 GBK 文件名、多游戏拒绝）、`list`、`remove` 也在真机上测过。
 
-还没验证：GalBox 窗口里的拖放和按钮（需要人点）、`gal nw` 和 NW.js 路线、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
+GalBox 窗口里的拖放和按钮也已人工试用确认。
+
+还没验证：`gal nw` 和 NW.js 路线、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 许可
 
