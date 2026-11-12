@@ -89,6 +89,9 @@ usage() {
   bottle <名字>               新建或修复一个 Wine 容器
   cfg [-b 容器]               打开 winecfg
   kill [-b 容器]              结束容器内所有进程
+  launcher <名字> [-b 容器] [-l 语言] <exe> [参数...]
+                              生成可双击的启动器（~/Games/gal/launch/<名字>.command）
+  start <名字>                在桌面会话里运行启动器（从 SSH 远程启动游戏用这个）
 
 环境变量:
   GAL_HOME    数据目录，默认 ~/Games/gal
@@ -265,6 +268,47 @@ cmd_cfg() {
   WINEPREFIX="$BOTTLES/$OPT_BOTTLE" WINEDEBUG=-all exec winecfg
 }
 
+# 生成可双击的启动器 ~/Games/gal/launch/<名字>.command
+# 游戏必须在桌面会话里启动；从 SSH 直接 gal run 会报 “no driver could be loaded”
+cmd_launcher() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "用法: gal launcher <名字> [-b 容器] [-l 语言] <exe> [参数...]"
+  shift
+  parse_opts "$@"
+  shift "$OPT_SHIFT"
+  [ $# -ge 1 ] || die "用法: gal launcher <名字> [-b 容器] [-l 语言] <exe> [参数...]"
+  [ -f "$1" ] || die "找不到文件: $1"
+
+  local exe
+  exe="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+  shift
+
+  local self
+  self="$SCRIPT_DIR/$(basename "$0")"
+  mkdir -p "$GAL_HOME/launch" "$GAL_HOME/logs"
+  local f="$GAL_HOME/launch/$name.command"
+  {
+    echo '#!/bin/bash'
+    echo "# 由 gal launcher 生成，可双击运行；日志在 $GAL_HOME/logs/$name.log"
+    printf 'exec %q run -b %q -l %q %q' "$self" "$OPT_BOTTLE" "$OPT_LANG" "$exe"
+    local a
+    for a in "$@"; do printf ' %q' "$a"; done
+    printf ' > %q 2>&1\n' "$GAL_HOME/logs/$name.log"
+  } > "$f"
+  chmod +x "$f"
+  say "已生成 $f"
+  say "双击它启动，或在终端/SSH 里执行: gal start $name"
+}
+
+cmd_start() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "用法: gal start <名字>"
+  local f="$GAL_HOME/launch/$name.command"
+  [ -x "$f" ] || die "没有启动器 $f，先用 gal launcher 生成"
+  open "$f"
+  say "已在桌面会话里启动 $name，日志: $GAL_HOME/logs/$name.log"
+}
+
 cmd_kill() {
   parse_opts "$@"
   need_wine
@@ -395,6 +439,8 @@ main() {
     bottle)       cmd_bottle "$@" ;;
     cfg)          cmd_cfg "$@" ;;
     kill)         cmd_kill "$@" ;;
+    launcher)     cmd_launcher "$@" ;;
+    start)        cmd_start "$@" ;;
     ""|-h|--help|help) usage ;;
     *)            usage; die "未知命令: $cmd" ;;
   esac

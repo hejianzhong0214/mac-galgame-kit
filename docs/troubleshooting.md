@@ -58,6 +58,27 @@ Retina 模式关闭时由系统放大，属于正常。窗口太小就用游戏�
 WINEPREFIX=~/Games/gal/bottles/default wine reg add 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /t REG_SZ /d y /f
 ```
 
+## 从 SSH 启动报 “no driver could be loaded”
+
+SSH 会话连不到 Mac 的窗口系统。用启动器在桌面会话里运行：
+
+```bash
+./bin/gal launcher 游戏名 -b 容器 /path/to/game.exe
+```
+
+```bash
+./bin/gal start 游戏名
+```
+
+## Unity 游戏报 “Failed to initialize graphics” / “d3d11: failed to create device”
+
+Wine 自带的 D3D11 底层是 macOS 的 OpenGL 4.1，功能不够，较新的 Unity（2021 以后，尤其 Unity 6）会直接初始化失败。加 `-force-vulkan` 参数只对打包了 Vulkan 渲染器的游戏有效，日志里出现 “was not built from editor” 就说明没打包。
+
+可选方案：
+
+- DXVK-macOS：把 D3D11 翻译成 Vulkan，再经 MoltenVK 转成 Metal，免费，但项目已停在 1.10.3，对新游戏不一定行。
+- D3DMetal：苹果的 D3D→Metal 翻译层，兼容性最好。CrossOver 自带；免费途径是 Sikarugir 等打包工具。
+
 ## 游戏卡住、关不掉
 
 ```bash
