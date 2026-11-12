@@ -64,10 +64,27 @@
 
 ### Unity
 
-2D 的 Unity 游戏用默认的 Homebrew Wine 通常能跑。3D 或者用了 D3D11/12 特性的，换成带 D3DMetal 的方案：
+较新的 Unity（2021 以后）用 Wine 自带的 D3D11 会初始化失败，先用 `gal dxvk` 装 DXVK（`gal import` 会自动装）。还不行再换带 D3DMetal 的方案：
 
 - **CrossOver**：新建容器后在容器设置里打开 D3DMetal。
 - **Sikarugir**：创建 wrapper 时选带 D3DMetal 的引擎。
+
+#### Unity 游戏的中文 / 机翻
+
+先确认游戏是不是自带中文：很多 DLsite / Steam 上的新作都内置简体中文，在游戏设置里切语言即可。只有确实没有中文时才需要机翻。
+
+- **MTool 不支持 Unity**（官网支持列表里没有），别下。
+- **XUnity.AutoTranslator** 是 Unity 游戏的通用方案，已验证在 Wine 下可用（Unity 6 + Mono 后端，BepInEx 5.4.23.6 + XUnity 5.6.3.1）。做法：
+  1. 把 [BepInEx](https://github.com/BepInEx/BepInEx/releases) 的 `BepInEx_win_x64_*.zip` 和 [XUnity.AutoTranslator](https://github.com/bbepis/XUnity.AutoTranslator/releases) 的 `XUnity.AutoTranslator-BepInEx-*.zip` 解压到游戏目录（exe 所在目录）。
+  2. 给容器加 DLL 覆盖，让 BepInEx 能加载：
+
+     ```bash
+     WINEPREFIX=~/Games/gal/bottles/容器名 wine reg add 'HKCU\Software\Wine\DllOverrides' /v winhttp /t REG_SZ /d native,builtin /f
+     ```
+
+  3. 在 `BepInEx/config/AutoTranslatorConfig.ini` 里设置 `Language=zh-CN`、`FromLanguage=ja` 和 `Endpoint`。
+- **翻译接口**：国内网络连不上谷歌；XUnity 内置的 `BingTranslate` 在 2026-11 测试时解析失败（空指针），可试 `PapagoTranslate`、`DeepLTranslate`，或申请百度翻译 API 后用 `BaiduTranslate`。
+- IL2CPP 后端的 Unity 游戏（目录里有 `GameAssembly.dll`）要用 BepInEx 6 的 IL2CPP 版本，没测过。
 
 ### 需要安装的游戏
 
