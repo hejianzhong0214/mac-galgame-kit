@@ -1,0 +1,27 @@
+# 游戏本体、容器、存档一律不进仓库
+/games/
+/bottles/
+/runtimes/
+/saves/
+
+# 常见游戏资源与可执行文件
+*.exe
+*.dll
+*.xp3
+*.rpa
+*.pck
+*.arc
+*.nsa
+*.int
+*.wolf
+*.rgssad
+*.rgss2a
+*.rgss3a
+*.iso
+*.mdf
+*.mds
+*.zip
+*.rar
+*.7z
+
+.DS_Store

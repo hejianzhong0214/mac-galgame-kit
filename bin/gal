@@ -1,0 +1,355 @@
+#!/bin/bash
+# gal — 在 Apple Silicon Mac 上运行 galgame / 小游戏的辅助脚本
+# 兼容 macOS 自带的 bash 3.2
+set -euo pipefail
+
+GAL_HOME="${GAL_HOME:-$HOME/Games/gal}"
+BOTTLES="$GAL_HOME/bottles"
+RUNTIMES="$GAL_HOME/runtimes"
+DEFAULT_BOTTLE="${GAL_BOTTLE:-default}"
+
+say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+need_wine() {
+  have wine || die "没有找到 wine，请先运行: gal setup"
+}
+
+has_rosetta() {
+  arch -x86_64 /usr/bin/true >/dev/null 2>&1
+}
+
+locale_of() {
+  case "$1" in
+    ja)   echo "ja_JP.UTF-8" ;;
+    zh)   echo "zh_CN.UTF-8" ;;
+    tw)   echo "zh_TW.UTF-8" ;;
+    ko)   echo "ko_KR.UTF-8" ;;
+    none) echo "" ;;
+    *)    die "未知语言: $1（可选 ja / zh / tw / ko / none）" ;;
+  esac
+}
+
+usage() {
+  cat <<'EOF'
+用法: gal <命令> [参数]
+
+  doctor                      检查环境
+  setup                       安装 Rosetta 2、Wine、winetricks，并创建默认容器
+  detect <游戏目录>           识别游戏引擎并给出推荐路线
+  run [-b 容器] [-l 语言] <exe> [参数...]
+                              用 Wine 启动；语言: ja(默认) zh tw ko none
+  nw <游戏目录>               用原生 arm64 NW.js 启动 RPG Maker MV/MZ、TyranoScript 游戏
+  nw-install                  下载/更新 NW.js（NWJS_VERSION=v0.xx.x 可指定版本）
+  bottle <名字>               新建或修复一个 Wine 容器
+  cfg [-b 容器]               打开 winecfg
+  kill [-b 容器]              结束容器内所有进程
+
+环境变量:
+  GAL_HOME    数据目录，默认 ~/Games/gal
+  GAL_BOTTLE  默认容器名，默认 default
+  NWJS_APP    自定义 nwjs.app 路径
+EOF
+}
+
+cmd_doctor() {
+  [ "$(uname -s)" = "Darwin" ] || die "这个脚本只支持 macOS"
+
+  if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = "1" ]; then
+    say "芯片: Apple Silicon ($(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unknown))"
+  else
+    warn "芯片: 不是 Apple Silicon，本方案的原生路线不适用"
+  fi
+  say "系统: macOS $(sw_vers -productVersion)"
+  say "内存: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
+
+  if has_rosetta; then say "Rosetta 2: 已安装"; else warn "Rosetta 2: 未安装（gal setup 会安装）"; fi
+
+  local t
+  for t in brew wine winetricks; do
+    if have "$t"; then say "$t: $(command -v "$t")"; else warn "$t: 未安装"; fi
+  done
+  if have wine; then say "wine 版本: $(wine --version 2>/dev/null || echo 无法获取)"; fi
+
+  if [ -d "/Applications/CrossOver.app" ]; then say "CrossOver: 已安装（3D 游戏优先用它）"; fi
+
+  if pmset -g 2>/dev/null | grep -Eq 'lowpowermode[[:space:]]+1'; then
+    warn "低电量模式已开启，性能会被限制"
+  else
+    say "低电量模式: 关闭"
+  fi
+
+  say "可用空间: $(df -h "$HOME" | awk 'NR==2 {print $4}')"
+  if [ -d "$BOTTLES" ]; then
+    say "容器: $(ls "$BOTTLES" 2>/dev/null | tr '\n' ' ')"
+  else
+    warn "还没有容器（gal setup 会创建）"
+  fi
+}
+
+cmd_setup() {
+  [ "$(uname -s)" = "Darwin" ] || die "这个脚本只支持 macOS"
+  have brew || die "请先安装 Homebrew: https://brew.sh"
+
+  if ! has_rosetta; then
+    say "安装 Rosetta 2"
+    softwareupdate --install-rosetta --agree-to-license
+  fi
+
+  if ! have wine; then
+    say "安装 Wine"
+    brew install --cask wine-stable
+  fi
+  if [ -d "/Applications/Wine Stable.app" ]; then
+    xattr -dr com.apple.quarantine "/Applications/Wine Stable.app" 2>/dev/null || true
+  fi
+
+  if ! brew list --cask gstreamer-runtime >/dev/null 2>&1; then
+    say "安装 GStreamer 运行库（游戏内视频需要）"
+    brew install --cask gstreamer-runtime || warn "GStreamer 安装失败，游戏内视频可能无法播放"
+  fi
+
+  if ! have winetricks; then
+    say "安装 winetricks"
+    brew install winetricks
+  fi
+
+  mkdir -p "$BOTTLES" "$RUNTIMES"
+  if [ ! -d "$BOTTLES/$DEFAULT_BOTTLE" ]; then
+    cmd_bottle "$DEFAULT_BOTTLE"
+  fi
+
+  say "完成。试试: gal run /path/to/game.exe"
+}
+
+cmd_bottle() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "用法: gal bottle <名字>"
+  need_wine
+
+  local p="$BOTTLES/$name"
+  mkdir -p "$BOTTLES"
+  say "初始化容器: $p"
+
+  export WINEPREFIX="$p"
+  export WINEDEBUG=-all
+  wineboot -u
+
+  # 关闭 Retina 模式：按逻辑分辨率渲染，3D 游戏负担小得多
+  wine reg add 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /t REG_SZ /d n /f >/dev/null
+  # 字体抗锯齿
+  wine reg add 'HKCU\Control Panel\Desktop' /v FontSmoothing /t REG_SZ /d 2 /f >/dev/null
+  wine reg add 'HKCU\Control Panel\Desktop' /v FontSmoothingType /t REG_DWORD /d 2 /f >/dev/null
+  wine reg add 'HKCU\Control Panel\Desktop' /v FontSmoothingGamma /t REG_DWORD /d 1400 /f >/dev/null
+  wine reg add 'HKCU\Control Panel\Desktop' /v FontSmoothingOrientation /t REG_DWORD /d 1 /f >/dev/null
+
+  if have winetricks; then
+    say "安装中日韩字体（第一次需要下载，比较慢）"
+    winetricks -q cjkfonts || warn "字体安装失败，可稍后手动执行: WINEPREFIX=\"$p\" winetricks -q cjkfonts"
+  else
+    warn "没有 winetricks，跳过字体安装"
+  fi
+
+  wineserver -w || true
+  say "容器 $name 就绪"
+}
+
+# 解析 -b / -l 选项；结果写入全局 OPT_BOTTLE、OPT_LANG、OPT_SHIFT
+parse_opts() {
+  OPT_BOTTLE="$DEFAULT_BOTTLE"
+  OPT_LANG="ja"
+  OPT_SHIFT=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -b) [ $# -ge 2 ] || die "-b 后面要跟容器名"; OPT_BOTTLE="$2"; shift 2; OPT_SHIFT=$((OPT_SHIFT + 2)) ;;
+      -l) [ $# -ge 2 ] || die "-l 后面要跟语言"; OPT_LANG="$2"; shift 2; OPT_SHIFT=$((OPT_SHIFT + 2)) ;;
+      --) OPT_SHIFT=$((OPT_SHIFT + 1)); break ;;
+      -*) die "未知选项: $1" ;;
+      *)  break ;;
+    esac
+  done
+}
+
+cmd_run() {
+  parse_opts "$@"
+  shift "$OPT_SHIFT"
+  [ $# -ge 1 ] || die "用法: gal run [-b 容器] [-l 语言] <exe> [参数...]"
+
+  local exe="$1"
+  shift
+  [ -f "$exe" ] || die "找不到文件: $exe"
+  need_wine
+
+  local loc
+  loc="$(locale_of "$OPT_LANG")"
+
+  local p="$BOTTLES/$OPT_BOTTLE"
+  if [ ! -d "$p" ]; then
+    warn "容器 $OPT_BOTTLE 不存在，先创建"
+    cmd_bottle "$OPT_BOTTLE"
+  fi
+
+  local dir base
+  dir="$(cd "$(dirname "$exe")" && pwd)"
+  base="$(basename "$exe")"
+
+  # 很多游戏用相对路径找资源，必须在游戏目录里启动
+  cd "$dir"
+
+  export WINEPREFIX="$p"
+  export WINEDEBUG="${WINEDEBUG:--all}"
+  export WINEMSYNC=1
+  export WINEESYNC=1
+  if [ -n "$loc" ]; then
+    export LC_ALL="$loc"
+    export LANG="$loc"
+  fi
+
+  say "容器: $OPT_BOTTLE  区域: ${loc:-系统默认}  程序: $base"
+  exec wine "$base" "$@"
+}
+
+cmd_cfg() {
+  parse_opts "$@"
+  need_wine
+  WINEPREFIX="$BOTTLES/$OPT_BOTTLE" WINEDEBUG=-all exec winecfg
+}
+
+cmd_kill() {
+  parse_opts "$@"
+  need_wine
+  WINEPREFIX="$BOTTLES/$OPT_BOTTLE" wineserver -k || true
+  say "已结束容器 $OPT_BOTTLE 里的进程"
+}
+
+cmd_nw_install() {
+  have curl || die "需要 curl"
+  local ver="${NWJS_VERSION:-}"
+  if [ -z "$ver" ]; then
+    ver="$(curl -fsSL https://nwjs.io/versions.json | grep -m1 '"latest"' | sed -E 's/.*"(v[0-9.]+)".*/\1/')"
+  fi
+  case "$ver" in
+    v[0-9]*) ;;
+    *) die "无法确定 NW.js 版本，请用 NWJS_VERSION=v0.xx.x 指定" ;;
+  esac
+
+  local url="https://dl.nwjs.io/$ver/nwjs-$ver-osx-arm64.zip"
+  local tmp
+  tmp="$(mktemp -d)"
+  say "下载 NW.js $ver (arm64)"
+  curl -fL --progress-bar -o "$tmp/nwjs.zip" "$url" || die "下载失败: $url"
+  ditto -x -k "$tmp/nwjs.zip" "$tmp/out"
+
+  local found
+  found="$(find "$tmp/out" -maxdepth 2 -name 'nwjs.app' -print -quit)"
+  [ -n "$found" ] || die "压缩包里没有找到 nwjs.app"
+
+  mkdir -p "$RUNTIMES"
+  rm -rf "$RUNTIMES/nwjs.app"
+  mv "$found" "$RUNTIMES/nwjs.app"
+  rm -rf "$tmp"
+  xattr -dr com.apple.quarantine "$RUNTIMES/nwjs.app" 2>/dev/null || true
+  say "NW.js 已安装到 $RUNTIMES/nwjs.app"
+}
+
+cmd_nw() {
+  local d="${1:-}"
+  [ -n "$d" ] && [ -d "$d" ] || die "用法: gal nw <游戏目录>"
+  d="$(cd "$d" && pwd)"
+
+  [ -f "$d/package.json" ] || die "$d 里没有 package.json，这不是 NW.js 游戏，或者需要先补一个（见 docs/engines.md）"
+
+  if grep -Eq '"name"[[:space:]]*:[[:space:]]*""' "$d/package.json"; then
+    die "package.json 里的 \"name\" 是空的，NW.js 会拒绝启动。请把它改成任意非空值，例如 \"name\": \"game\""
+  fi
+
+  local app="${NWJS_APP:-$RUNTIMES/nwjs.app}"
+  if [ ! -d "$app" ]; then
+    cmd_nw_install
+  fi
+
+  say "用原生 NW.js 启动: $d"
+  exec "$app/Contents/MacOS/nwjs" "$d"
+}
+
+cmd_detect() {
+  local d="${1:-.}"
+  [ -d "$d" ] || die "用法: gal detect <游戏目录>"
+
+  # 目录内（最多 3 层）是否存在匹配名字的文件或目录
+  has() {
+    find "$d" -maxdepth 3 -iname "$1" -print -quit 2>/dev/null | grep -q .
+  }
+  report() {
+    say "引擎: $1"
+    say "路线: $2"
+    if [ -n "${3:-}" ]; then say "做法: $3"; fi
+  }
+
+  if has '*.rpa' || has '*.rpyc' || has 'renpy'; then
+    if has '*.app'; then
+      report "Ren'Py" "原生" "直接打开目录里的 .app"
+    else
+      report "Ren'Py" "原生" "用对应大版本的 Ren'Py SDK 启动（见 docs/engines.md）"
+    fi
+  elif has '*.app'; then
+    report "自带 macOS 版" "原生" "直接打开 .app；用 file 命令确认里面是 arm64 还是 x86_64"
+  elif has 'rmmz_core.js'; then
+    report "RPG Maker MZ" "原生 NW.js" "gal nw \"$d\""
+  elif has 'rpg_core.js'; then
+    report "RPG Maker MV" "原生 NW.js" "gal nw \"$d\""
+  elif has '*.rgss3a'; then
+    report "RPG Maker VX Ace (RGSS3)" "原生 mkxp-z，或 Wine" "见 docs/engines.md"
+  elif has '*.rgss2a'; then
+    report "RPG Maker VX (RGSS2)" "原生 mkxp-z，或 Wine" "见 docs/engines.md"
+  elif has '*.rgssad'; then
+    report "RPG Maker XP (RGSS1)" "原生 mkxp-z，或 Wine" "见 docs/engines.md"
+  elif has 'tyrano'; then
+    report "TyranoScript" "原生 NW.js" "gal nw <含 package.json 的目录>"
+  elif has 'nscript.dat' || has 'arc.nsa' || has 'nscript.___'; then
+    report "NScripter" "原生 ONScripter，或 Wine" "见 docs/engines.md"
+  elif has '*.xp3'; then
+    report "吉里吉里 (Kirikiri)" "Wine，日文区域" "gal run <游戏exe>"
+  elif has 'Scene.pck' || has 'Gameexe.dat' || has 'SiglusEngine*.exe'; then
+    report "SiglusEngine" "Wine，日文区域" "gal run <游戏exe>"
+  elif has 'Seen.txt' || has 'RealLive.exe'; then
+    report "RealLive" "Wine，日文区域" "gal run <游戏exe>"
+  elif has 'UnityPlayer.dll' || has 'globalgamemanagers' || has '*_Data'; then
+    report "Unity" "Wine；3D 游戏用 CrossOver 或 Sikarugir 的 D3DMetal" "gal run <游戏exe>"
+  elif has 'cs2.exe' || has '*.int'; then
+    report "CatSystem2" "Wine，日文区域" "gal run <游戏exe>"
+  elif has 'BGI.exe' || has 'BHVC.exe'; then
+    report "BGI / Ethornell" "Wine，日文区域" "gal run <游戏exe>"
+  elif has '*.wolf'; then
+    report "Wolf RPG Editor" "Wine，日文区域" "gal run Game.exe"
+  elif has 'nw.dll' || has 'package.nw' || has 'package.json'; then
+    report "NW.js / Electron 类网页游戏" "优先原生 NW.js" "gal nw <含 package.json 的目录>；不行再 gal run"
+  elif has '*.exe'; then
+    report "未识别的 Windows 游戏" "Wine" "gal run <游戏exe>；日文游戏保持默认区域，其他加 -l none"
+  else
+    warn "没有识别出引擎，目录里也没有 exe"
+    return 1
+  fi
+}
+
+main() {
+  local cmd="${1:-}"
+  [ $# -gt 0 ] && shift
+  case "$cmd" in
+    doctor)       cmd_doctor "$@" ;;
+    setup)        cmd_setup "$@" ;;
+    detect)       cmd_detect "$@" ;;
+    run)          cmd_run "$@" ;;
+    nw)           cmd_nw "$@" ;;
+    nw-install)   cmd_nw_install "$@" ;;
+    bottle)       cmd_bottle "$@" ;;
+    cfg)          cmd_cfg "$@" ;;
+    kill)         cmd_kill "$@" ;;
+    ""|-h|--help|help) usage ;;
+    *)            usage; die "未知命令: $cmd" ;;
+  esac
+}
+
+main "$@"
