@@ -116,9 +116,9 @@ MacBook Air 没有风扇，持续高负载会降频。详细说明见 [docs/perf
 
 已在 MacBook Air M3 / macOS 15.6 / Wine 11.0 上验证：`gal doctor`、离线 `gal setup`、容器创建、注册表默认设置导入、`gal run` 的日文和中文区域切换。
 
-另外用一个 Unity 6 游戏验证了 `gal launcher` / `gal start` 和 DXVK 路线：图形初始化成功并持续渲染。
+另外用一个 Unity 6 游戏验证了 `gal launcher` / `gal start` 和 DXVK 路线：画面和日文字体显示正常。
 
-还没验证：画面和字体显示的实际观感、`gal nw`、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
+还没验证：`gal nw`、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 许可
 
