@@ -3,11 +3,7 @@
 ## 乱码、方块字、启动即闪退
 
 1. 确认用了正确的区域：日文游戏 `-l ja`（默认），简体汉化版通常是 `-l zh`，但有些汉化补丁仍然要求日文区域，两个都试一下。
-2. 文字是方块说明缺字体：
-
-   ```bash
-   WINEPREFIX=~/Games/gal/bottles/default winetricks -q cjkfonts
-   ```
+2. 文字是方块说明游戏要的字体名没有映射。映射表在 `share/gal-defaults.reg`，按同样格式加一行（左边是游戏要的 Windows 字体名，右边是 macOS 上有的字体），然后重新执行 `gal bottle default` 导入。
 
 3. 游戏路径里不要有 Wine 当前区域无法表示的字符。最稳妥是把游戏放在纯英文路径下。
 
@@ -28,6 +24,10 @@
    ```
 
    ```bash
+   brew install winetricks
+   ```
+
+   ```bash
    WINEPREFIX=~/Games/gal/bottles/video-fix winetricks -q quartz lavfilters
    ```
 
@@ -42,9 +42,13 @@
 xattr -dr com.apple.quarantine "/Applications/Wine Stable.app"
 ```
 
-## `wine: command not found`
+## `gal setup` 装 Wine 失败
 
-Homebrew 的路径没进 PATH。执行 `eval "$(/opt/homebrew/bin/brew shellenv)"`，并把这一行写进 `~/.zprofile`。
+Homebrew 的 Wine 包从 GitHub 下载，连不上 GitHub 就会失败。按 README 的离线安装方式，用 `gal setup --wine-tarball` 安装。
+
+## 想直接用 `wine` 命令
+
+`gal` 会自己找到 Wine，不需要它在 PATH 里。想手动调用的话，离线安装的 Wine 在 `~/Games/gal/runtimes/Wine Stable.app/Contents/Resources/wine/bin/`。
 
 ## 游戏窗口极小或模糊
 

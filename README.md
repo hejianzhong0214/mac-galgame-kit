@@ -65,7 +65,15 @@ git clone <本仓库地址> && cd mac-galgame-kit
 ./bin/gal run /path/to/game.exe
 ```
 
-`gal setup` 会安装 Rosetta 2、Wine、winetricks，并建一个带中日韩字体的默认容器（bottle）。`gal run` 默认用日文区域启动，等价于 Windows 上的 Locale Emulator。
+`gal setup` 会安装 Rosetta 2 和 Wine，并建一个默认容器（bottle），容器里已把 Windows 的中日韩字体名映射到 macOS 自带字体，不需要另外下载字体。`gal run` 默认用日文区域启动，等价于 Windows 上的 Locale Emulator。
+
+Mac 连不上 GitHub 时 Homebrew 装不了 Wine，改用离线安装：在能下载的地方拿到 [Wine 的 macOS 构建](https://github.com/Gcenx/macOS_Wine_builds/releases)（`wine-stable-*-osx64.tar.xz`），然后：
+
+```bash
+./bin/gal setup --wine-tarball /path/to/wine-stable-xxx-osx64.tar.xz
+```
+
+这种方式装在 `~/Games/gal/runtimes/`，不需要管理员密码。
 
 常用命令：
 
@@ -103,7 +111,9 @@ MacBook Air 没有风扇，持续高负载会降频。详细说明见 [docs/perf
 
 ## 状态
 
-脚本在 Windows 上编写，只做过语法检查，**还没有在真机上跑过**。第一次用请先执行 `gal doctor`，遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
+已在 MacBook Air M3 / macOS 15.6 / Wine 11.0 上验证：`gal doctor`、离线 `gal setup`、容器创建、注册表默认设置导入、`gal run` 的日文和中文区域切换。
+
+还没验证：实际游戏的画面和字体显示、`gal nw`、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 许可
 
