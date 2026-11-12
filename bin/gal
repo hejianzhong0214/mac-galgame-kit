@@ -672,7 +672,7 @@ cmd_import() {
     mkdir -p "$BOTTLES/$bottle/drive_c/Games"
   fi
 
-  say "拷贝游戏文件（$(du -sh "$gdir" | cut -f1)）"
+  say "拷贝游戏文件（$(du -sh "$gdir" | cut -f1 | tr -d " ")）"
   if [ -n "$IMPORT_STAGE" ]; then
     mv "$gdir" "$dest"
   else
