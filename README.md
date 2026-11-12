@@ -49,6 +49,30 @@
 
 不推荐 Whisky（已停止维护）。
 
+## GalBox：拖进去就能玩
+
+`app/` 里是一个原生 macOS 小软件 GalBox。把游戏的 exe、游戏文件夹或 zip 拖进窗口（或拖到 Dock 图标上），它会自动：
+
+1. 解压 zip（正确处理中文、日文系统打包的文件名）。
+2. 找出主程序 exe，排除崩溃处理器、卸载程序、来路不明的“激活启动器”等；包里有多个游戏时会拒绝并列出。
+3. 识别引擎，给这个游戏单独建一个 Wine 容器，并断开容器到你主目录的映射。
+4. 把游戏拷进容器；Unity 游戏自动装 DXVK；RPG Maker MV/MZ 走原生 NW.js。
+5. 加入游戏库，点“开始”即可。原来的文件不会被改动。
+
+编译安装（需要 Xcode 命令行工具，`xcode-select --install`）：
+
+```bash
+./app/build.sh --install
+```
+
+装好后在 `~/Applications/GalBox.app`，可以拖到 Dock。第一次用前要先跑过 `gal setup` 装好 Wine；Unity 游戏需要把 [DXVK-macOS](https://github.com/Gcenx/DXVK-macOS/releases) 的 `dxvk-macOS-*.tar.gz`（不带 `-builtin`）放进 `~/Games/gal/downloads/`。
+
+GalBox 背后调用的是 `gal import`，命令行也能直接用：
+
+```bash
+./bin/gal import -l ja /path/to/游戏文件夹或zip
+```
+
 ## 快速开始
 
 需要先装好 [Homebrew](https://brew.sh)。
@@ -79,6 +103,8 @@ Mac 连不上 GitHub 时 Homebrew 装不了 Wine，改用离线安装：在能�
 
 | 命令 | 作用 |
 | --- | --- |
+| `gal import [-l 语言] <exe\|文件夹\|zip>` | 一键导入（GalBox 用的就是它） |
+| `gal list` / `gal remove <名字>` | 列出 / 删除导入的游戏 |
 | `gal doctor` | 检查环境 |
 | `gal setup` | 一次性安装依赖 |
 | `gal detect <目录>` | 识别引擎并给出路线 |
@@ -116,9 +142,9 @@ MacBook Air 没有风扇，持续高负载会降频。详细说明见 [docs/perf
 
 已在 MacBook Air M3 / macOS 15.6 / Wine 11.0 上验证：`gal doctor`、离线 `gal setup`、容器创建、注册表默认设置导入、`gal run` 的日文和中文区域切换。
 
-另外用一个 Unity 6 游戏验证了 `gal launcher` / `gal start` 和 DXVK 路线：画面和日文字体显示正常。
+另外用一个 Unity 6 游戏验证了 `gal launcher` / `gal start` 和 DXVK 路线：画面和日文字体显示正常。GalBox 的编译、通过“打开方式”导入、`gal import` 的文件夹和 zip 导入（含 GBK 文件名、多游戏拒绝）、`list`、`remove` 也在真机上测过。
 
-还没验证：`gal nw`、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
+还没验证：GalBox 窗口里的拖放和按钮（需要人点）、`gal nw` 和 NW.js 路线、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 许可
 
