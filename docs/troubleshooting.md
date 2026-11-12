@@ -74,10 +74,15 @@ SSH 会话连不到 Mac 的窗口系统。用启动器在桌面会话里运行�
 
 Wine 自带的 D3D11 底层是 macOS 的 OpenGL 4.1，功能不够，较新的 Unity（2021 以后，尤其 Unity 6）会直接初始化失败。加 `-force-vulkan` 参数只对打包了 Vulkan 渲染器的游戏有效，日志里出现 “was not built from editor” 就说明没打包。
 
-可选方案：
+先试 DXVK-macOS（免费）：它把 D3D11 翻译成 Vulkan，再经 MoltenVK 转成 Metal。从 [Gcenx/DXVK-macOS](https://github.com/Gcenx/DXVK-macOS/releases) 下载不带 `-builtin` 的包，给这个游戏单独建容器后装进去：
 
-- DXVK-macOS：把 D3D11 翻译成 Vulkan，再经 MoltenVK 转成 Metal，免费，但项目已停在 1.10.3，对新游戏不一定行。
-- D3DMetal：苹果的 D3D→Metal 翻译层，兼容性最好。CrossOver 自带；免费途径是 Sikarugir 等打包工具。
+```bash
+./bin/gal dxvk -b 容器 /path/to/dxvk-macOS-async-v1.10.3-20230507-repack.tar.gz
+```
+
+已验证：Unity 6（6000.3）的「シグレ・メロウタイム」体验版在 M3 上用 DXVK 1.10.3 能以 D3D11 FL 11.0 初始化并持续渲染。
+
+DXVK 也不行时用 D3DMetal：苹果的 D3D→Metal 翻译层，兼容性最好。CrossOver 自带；免费途径是 Sikarugir 等打包工具。
 
 ## 游戏卡住、关不掉
 

@@ -34,7 +34,7 @@
 | 吉里吉里 2 / Z | `*.xp3` | Wine：`gal run` |
 | SiglusEngine / RealLive | `Scene.pck`、`Gameexe.dat` | Wine：`gal run` |
 | CatSystem2、BGI、其他日系引擎 | `*.int`、`BGI.exe` 等 | Wine：`gal run` |
-| Unity | `UnityPlayer.dll`、`*_Data/` | Wine + D3DMetal（CrossOver 或 Sikarugir） |
+| Unity | `UnityPlayer.dll`、`*_Data/` | Wine + DXVK（`gal dxvk`）；不行再用 CrossOver 的 D3DMetal |
 | Wolf RPG | `*.wolf` | Wine：`gal run` |
 
 各引擎的具体做法见 [docs/engines.md](docs/engines.md)。
@@ -87,6 +87,9 @@ Mac 连不上 GitHub 时 Homebrew 装不了 Wine，改用离线安装：在能�
 | `gal bottle <名字>` | 新建独立容器（给需要特殊组件的游戏用） |
 | `gal cfg [-b 容器]` | 打开 winecfg |
 | `gal kill [-b 容器]` | 结束容器里所有进程 |
+| `gal launcher <名字> [-b 容器] <exe>` | 生成可双击的启动器 `~/Games/gal/launch/<名字>.command` |
+| `gal start <名字>` | 运行启动器（从 SSH 远程启动游戏必须用它） |
+| `gal dxvk [-b 容器] <tar.gz>` | 给容器装 DXVK，解决 Unity 等 D3D11 游戏图形初始化失败 |
 
 数据默认放在 `~/Games/gal/`，可用环境变量 `GAL_HOME` 改。
 
@@ -113,7 +116,9 @@ MacBook Air 没有风扇，持续高负载会降频。详细说明见 [docs/perf
 
 已在 MacBook Air M3 / macOS 15.6 / Wine 11.0 上验证：`gal doctor`、离线 `gal setup`、容器创建、注册表默认设置导入、`gal run` 的日文和中文区域切换。
 
-还没验证：实际游戏的画面和字体显示、`gal nw`、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
+另外用一个 Unity 6 游戏验证了 `gal launcher` / `gal start` 和 DXVK 路线：图形初始化成功并持续渲染。
+
+还没验证：画面和字体显示的实际观感、`gal nw`、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 许可
 

@@ -92,6 +92,7 @@ usage() {
   launcher <名字> [-b 容器] [-l 语言] <exe> [参数...]
                               生成可双击的启动器（~/Games/gal/launch/<名字>.command）
   start <名字>                在桌面会话里运行启动器（从 SSH 远程启动游戏用这个）
+  dxvk [-b 容器] <tar.gz>     把 DXVK-macOS 装进容器（Unity 等 D3D11 游戏图形初始化失败时用）
 
 环境变量:
   GAL_HOME    数据目录，默认 ~/Games/gal
@@ -268,6 +269,41 @@ cmd_cfg() {
   WINEPREFIX="$BOTTLES/$OPT_BOTTLE" WINEDEBUG=-all exec winecfg
 }
 
+# 把 DXVK-macOS 装进容器：D3D10/11 → Vulkan → MoltenVK → Metal
+# 用于 Wine 自带 D3D11 初始化失败的 Unity 等游戏
+cmd_dxvk() {
+  parse_opts "$@"
+  shift "$OPT_SHIFT"
+  local tb="${1:-}"
+  [ -n "$tb" ] && [ -f "$tb" ] || die "用法: gal dxvk [-b 容器] <dxvk-macOS-*.tar.gz>（下载: https://github.com/Gcenx/DXVK-macOS/releases）"
+  need_wine
+
+  local p="$BOTTLES/$OPT_BOTTLE"
+  [ -d "$p" ] || die "容器 $OPT_BOTTLE 不存在"
+
+  local tmp
+  tmp="$(mktemp -d)"
+  tar -xzf "$tb" -C "$tmp"
+  local x64 x32
+  x64="$(find "$tmp" -type d -name x64 -print -quit)"
+  x32="$(find "$tmp" -type d -name x32 -print -quit)"
+  [ -n "$x64" ] && [ -f "$x64/d3d11.dll" ] || { rm -rf "$tmp"; die "压缩包里没有 x64/d3d11.dll，请用不带 -builtin 的版本"; }
+
+  cp "$x64"/*.dll "$p/drive_c/windows/system32/"
+  if [ -n "$x32" ] && [ -d "$p/drive_c/windows/syswow64" ]; then
+    cp "$x32"/*.dll "$p/drive_c/windows/syswow64/"
+  fi
+  rm -rf "$tmp"
+
+  local d
+  for d in d3d11 d3d10core; do
+    ( cd "$p/drive_c" && WINEPREFIX="$p" WINEDEBUG=-all \
+      wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$d" /t REG_SZ /d native /f >/dev/null )
+  done
+  WINEPREFIX="$p" wineserver -w || true
+  say "DXVK 已装进容器 $OPT_BOTTLE（只影响这个容器）"
+}
+
 # 生成可双击的启动器 ~/Games/gal/launch/<名字>.command
 # 游戏必须在桌面会话里启动；从 SSH 直接 gal run 会报 “no driver could be loaded”
 cmd_launcher() {
@@ -440,6 +476,7 @@ main() {
     cfg)          cmd_cfg "$@" ;;
     kill)         cmd_kill "$@" ;;
     launcher)     cmd_launcher "$@" ;;
+    dxvk)         cmd_dxvk "$@" ;;
     start)        cmd_start "$@" ;;
     ""|-h|--help|help) usage ;;
     *)            usage; die "未知命令: $cmd" ;;
