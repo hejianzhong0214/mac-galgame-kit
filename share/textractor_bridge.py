@@ -66,6 +66,9 @@ def main():
         ctx, text = m.group(1), m.group(2).strip()
         parts = ctx.split(":")
         name = parts[5] if len(parts) > 5 else ""
+        if name == "Console":
+            print("Textractor:", text, file=sys.stderr, flush=True)  # 注入、挂钩等诊断信息
+            continue
         if name in SKIP or not text or not JP.search(text) or len(text) > 500:
             continue
         key = ":".join(parts[2:])  # 去掉句柄和进程号，按钩子位置区分线程
