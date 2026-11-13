@@ -749,7 +749,7 @@ msgothic.ttc|/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc|MS Gothic 
 meiryo.ttc|/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc|Meiryo & Meiryo Italic & Meiryo UI & Meiryo UI Italic (TrueType)
 meiryob.ttc|/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc|Meiryo Bold & Meiryo Bold Italic & Meiryo UI Bold & Meiryo UI Bold Italic (TrueType)
 ARIALUNI.TTF|/System/Library/Fonts/Supplemental/Arial Unicode.ttf|Arial Unicode MS (TrueType)"
-FONTS_VERSION=1
+FONTS_VERSION=2
 
 install_cjk_fonts() {
   local p="$1"
@@ -757,7 +757,9 @@ install_cjk_fonts() {
   [ -f "$p/.gal-fonts" ] && [ "$(cat "$p/.gal-fonts")" = "$FONTS_VERSION" ] && return 0
   mkdir -p "$fd"
   local tmp line file src name
-  tmp="$(mktemp -d)"
+  # 注册表文件必须放在容器里：隔离后的容器没有 Z: 盘，读不到外面的临时目录
+  tmp="$p/drive_c/windows/temp/gal-fonts"
+  mkdir -p "$tmp"
   {
     echo 'Windows Registry Editor Version 5.00'
     echo
@@ -775,7 +777,7 @@ EOF
   # regedit 要 UTF-16LE + BOM + CRLF
   { printf '\377\376'; awk '{ printf "%s\r\n", $0 }' "$tmp/fonts.txt" | iconv -f UTF-8 -t UTF-16LE; } > "$tmp/fonts.reg"
   ( select_bottle_wine "$(basename "$p")"
-    cd "$tmp" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S fonts.reg >/dev/null 2>&1
+    cd "$p/drive_c" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1
     WINEPREFIX="$p" wineserver -w ) || true
   rm -rf "$tmp"
   echo "$FONTS_VERSION" > "$p/.gal-fonts"
