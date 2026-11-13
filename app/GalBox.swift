@@ -44,6 +44,7 @@ struct Game: Identifiable, Hashable {
     var dir: String
     var imported: String
     var translate: Bool
+    var displayFit: Bool
 
     var subtitle: String {
         let e = engineTitles[engine] ?? engine
@@ -125,7 +126,8 @@ final class Model: ObservableObject {
                 id: name, title: kv["title"] ?? name, engine: kv["engine"] ?? "",
                 route: kv["route"] ?? "wine", lang: kv["lang"] ?? "ja",
                 bottle: kv["bottle"] ?? "", dir: kv["dir"] ?? "", imported: kv["imported"] ?? "",
-                translate: kv["translate"] == "on"))
+                translate: kv["translate"] == "on",
+                displayFit: (kv["display"] ?? "fit") == "fit"))
         }
         games = list.sorted { $0.imported > $1.imported }
     }
@@ -218,6 +220,10 @@ final class Model: ObservableObject {
 
     func remove(_ g: Game) {
         gal(["remove", g.id]) { _ in Model.shared.refresh() }
+    }
+
+    func setDisplay(_ g: Game, fit: Bool) {
+        gal(["display", g.id, fit ? "fit" : "native"]) { _ in Model.shared.refresh() }
     }
 
     func setTranslate(_ g: Game, _ on: Bool) {
@@ -464,6 +470,10 @@ struct ContentView: View {
             Menu {
                 Button(g.translate ? "关闭机翻" : "开启机翻") { m.setTranslate(g, !g.translate) }
                     .disabled(m.busy)
+                if g.route != "nw" {
+                    Toggle("画面适应屏幕", isOn: Binding(
+                        get: { g.displayFit }, set: { m.setDisplay(g, fit: $0) }))
+                }
                 Divider()
                 Button("在 Finder 中显示") { m.reveal(g) }
                 Button("查看运行日志") { m.openLog(g) }

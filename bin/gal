@@ -108,6 +108,7 @@ usage() {
                               开关机翻（DeepSeek，经 GalTranslator）；Unity/Ren'Py 游戏内替换，
                               RPG Maker MV/MZ 整包离线翻译，吉里吉里等用 Textractor + 悬浮字幕窗
   fetch <组件...>             下载并校验组件（dxvk、bepinex5、xunity、textractor、winetricks 等）
+  display <名字> [fit|native]  画面：fit 适应屏幕（默认，虚拟桌面不被菜单栏/Dock 裁掉），native 原始
   template [status|build|remove]
                               运行库模板容器：预装 VC++、DirectX 组件、视频解码、DXVK，新游戏直接克隆
   list                        列出导入的游戏
@@ -317,6 +318,22 @@ cmd_run() {
   fi
 
   say "容器: $OPT_BOTTLE  $(wine --version 2>/dev/null)  区域: ${loc:-系统默认}  程序: $base"
+
+  # 画面适应屏幕：Wine 会把窗口限制在菜单栏和 Dock 之间，游戏却按整块屏幕排版，
+  # 结果上下被裁掉。改用和可用区域一样大的虚拟桌面，游戏看到的屏幕就是实际能显示的大小
+  local display="${GAL_DISPLAY:-native}" sz=""
+  if [ -f "$meta" ]; then
+    display="$(meta_get "$meta" display)"
+    [ -n "$display" ] || display=fit
+  fi
+  if [ "$display" = fit ]; then sz="$(usable_desktop_size)"; fi
+  if [ -n "$sz" ]; then
+    say "画面: 适应屏幕（虚拟桌面 $sz）"
+    set -- explorer "/desktop=$OPT_BOTTLE,$sz" "$base" "$@"
+  else
+    set -- "$base" "$@"
+  fi
+
   if [ "$tmode" = textractor ]; then
     run_with_textractor "$base" "$@"
     exit 0
@@ -324,11 +341,41 @@ cmd_run() {
   if [ "$tmode" = ocr ]; then
     curl -s -m 5 -X POST -d "{\"game\":\"$OPT_BOTTLE\",\"from\":\"$GAL_FROM_LANG\"}" "$TRANSLATOR_URL/ocr/start" >/dev/null || true
     local rc=0
-    wine "$base" "$@" || rc=$?
+    wine "$@" || rc=$?
     curl -s -m 5 -X POST "$TRANSLATOR_URL/ocr/stop" >/dev/null || true
     exit "$rc"
   fi
-  exec wine "$base" "$@"
+  exec wine "$@"
+}
+
+# 当前主屏幕可用区域（去掉菜单栏、Dock）再减去窗口标题栏，输出 宽x高
+usable_desktop_size() {
+  local r w h
+  r="$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var v = $.NSScreen.mainScreen.visibleFrame; Math.floor(v.size.width) + " " + Math.floor(v.size.height)' 2>/dev/null)" || return 0
+  w="${r% *}"
+  h="${r#* }"
+  case "$w$h" in ""|*[!0-9]*) return 0 ;; esac
+  # 标题栏约 28 点；Wine 会把窗口右移几点，宽度也留点余量
+  echo "$(( (w - 8) / 2 * 2 ))x$(( (h - 30) / 2 * 2 ))"
+}
+
+cmd_display() {
+  local name="${1:-}" mode="${2:-}"
+  [ -n "$name" ] || die "用法: gal display <名字> [fit|native]"
+  local m="$GAL_HOME/launch/$name.meta"
+  [ -f "$m" ] || die "没有导入过 $name"
+  if [ -z "$mode" ]; then
+    local cur
+    cur="$(meta_get "$m" display)"
+    say "画面: ${cur:-fit}（fit = 适应屏幕，native = 原始）"
+    return 0
+  fi
+  case "$mode" in
+    fit|native) ;;
+    *) die "可选 fit（适应屏幕）或 native（原始）" ;;
+  esac
+  meta_set "$m" display "$mode"
+  say "已设置为 $mode，下次启动生效"
 }
 
 cmd_cfg() {
@@ -1077,6 +1124,7 @@ pe_arch() {
 
 # Textractor 模式启动：先起游戏，找到它的 Windows 进程号，再让 TextractorCLI 附加上去，
 # 抓到的文本交给 textractor_bridge.py 发到字幕窗
+# 参数: <游戏 exe 名> <传给 wine 的完整参数...>
 run_with_textractor() {
   local base="$1"
   shift
@@ -1084,10 +1132,10 @@ run_with_textractor() {
   local unix_cli="$WINEPREFIX/drive_c/galbox/Textractor/$(pe_arch "$base")/TextractorCLI.exe"
   if [ ! -f "$unix_cli" ]; then
     warn "容器里没有 Textractor，按普通方式启动"
-    exec wine "$base" "$@"
+    exec wine "$@"
   fi
 
-  wine "$base" "$@" &
+  wine "$@" &
   local gpid=$! winpid="" i
   for i in $(seq 1 60); do
     sleep 1
@@ -1246,6 +1294,7 @@ cmd_import() {
     echo "dir=$dest"
     echo "exe=$rel"
     echo "source=$src"
+    echo "display=fit"
     echo "imported=$(date '+%Y-%m-%d %H:%M')"
   } > "$GAL_HOME/launch/$name.meta"
 
@@ -1302,6 +1351,7 @@ main() {
     wine)         cmd_wine "$@" ;;
     translate)    cmd_translate "$@" ;;
     template)     cmd_template "$@" ;;
+    display)      cmd_display "$@" ;;
     fetch)        cmd_fetch "$@" ;;
     launcher)     cmd_launcher "$@" ;;
     dxvk)         cmd_dxvk "$@" ;;
