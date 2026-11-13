@@ -110,6 +110,8 @@ usage() {
   fetch <组件...>             下载并校验组件（dxvk、bepinex5、xunity、textractor、winetricks 等）
   display <名字> [fit|native]  画面：native 按游戏自己的设置（默认，通常是全屏）；fit 适应屏幕：
                               Unity 游戏改为窗口、正好等于菜单栏和 Dock 之间的可用区域
+  args <名字> [参数...|--clear]
+                              每个游戏的额外启动参数，例如 Unity 的 -force-d3d12
   crossover <名字> [on|off|status]
                               改用 CrossOver + D3DMetal 运行（3D 游戏更快；需要安装 CrossOver）
   template [status|build|remove]
@@ -282,6 +284,16 @@ cmd_run() {
   shift
   [ -f "$exe" ] || die "找不到文件: $exe"
 
+  # 每个游戏自己的额外启动参数（gal args 设置），追加在后面
+  local mx="$GAL_HOME/launch/$OPT_BOTTLE.meta" xa=""
+  if [ -f "$mx" ]; then xa="$(meta_get "$mx" extra_args)"; fi
+  if [ -n "$xa" ]; then
+    set -f
+    # shellcheck disable=SC2086
+    set -- "$@" $xa
+    set +f
+  fi
+
   # 切到了 CrossOver + D3DMetal 的游戏
   local mrt="$GAL_HOME/launch/$OPT_BOTTLE.meta"
   if [ -f "$mrt" ] && [ "$(meta_get "$mrt" runtime)" = crossover ]; then
@@ -400,6 +412,29 @@ usable_desktop_size() {
   case "$w$h" in ""|*[!0-9]*) return 0 ;; esac
   # 标题栏约 28 点；Wine 会把窗口右移几点，宽度也留点余量
   echo "$(( (w - 8) / 2 * 2 ))x$(( (h - 30) / 2 * 2 ))"
+}
+
+# 查看或设置游戏的额外启动参数：gal args <名字> [参数...]，gal args <名字> --clear 清除
+cmd_args() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "用法: gal args <名字> [参数...|--clear]"
+  shift
+  local m="$GAL_HOME/launch/$name.meta"
+  [ -f "$m" ] || die "没有导入过 $name"
+  if [ $# -eq 0 ]; then
+    local cur
+    cur="$(meta_get "$m" extra_args)"
+    say "额外启动参数: ${cur:-（无）}"
+    return 0
+  fi
+  if [ "$1" = --clear ]; then
+    meta_set "$m" extra_args ""
+    say "已清除额外启动参数"
+    return 0
+  fi
+  case "$*" in *"|"*) die "参数里不能有 |" ;; esac
+  meta_set "$m" extra_args "$*"
+  say "已设置额外启动参数: $*（下次启动生效）"
 }
 
 cmd_display() {
@@ -1618,6 +1653,7 @@ main() {
     template)     cmd_template "$@" ;;
     display)      cmd_display "$@" ;;
     crossover)    cmd_crossover "$@" ;;
+    args)         cmd_args "$@" ;;
     fetch)        cmd_fetch "$@" ;;
     launcher)     cmd_launcher "$@" ;;
     dxvk)         cmd_dxvk "$@" ;;
