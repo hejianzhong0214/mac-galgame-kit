@@ -1277,7 +1277,7 @@ cmd_crossover() {
       [ -d "$HOME/Library/Application Support/CrossOver" ] || [ -f "$HOME/Library/Preferences/com.codeweavers.CrossOver.plist" ] \
         || die "请先打开一次 CrossOver，在弹窗里选择试用（或输入注册信息），然后再执行"
       if [ ! -d "$cxp" ]; then
-        say "新建 CrossOver 容器 $cx（D3DMetal）"
+        say "新建 CrossOver 容器 ${cx}（D3DMetal）"
         "$CX_ROOT/bin/cxbottle" --bottle "$cx" --create --template win10_64 \
           --description "GalBox: $(meta_get "$m" title)" \
           --param "EnvironmentVariables:CX_GRAPHICS_BACKEND=d3dmetal" \
