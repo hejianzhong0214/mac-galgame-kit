@@ -33,7 +33,7 @@ echo "==> 编译 GalTranslator（翻译中转）"
 TA="$APP/Contents/Resources/kit/GalTranslator.app"
 mkdir -p "$TA/Contents/MacOS"
 swiftc -O -swift-version 5 -parse-as-library \
-  -target arm64-apple-macos13.0 \
+  -target arm64-apple-macos14.0 \
   -o "$TA/Contents/MacOS/GalTranslator" "$HERE/GalTranslator.swift"
 cp "$HERE/GalTranslator-Info.plist" "$TA/Contents/Info.plist"
 
