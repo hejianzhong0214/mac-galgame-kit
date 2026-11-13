@@ -110,6 +110,8 @@ usage() {
   fetch <组件...>             下载并校验组件（dxvk、bepinex5、xunity、textractor、winetricks 等）
   display <名字> [fit|native]  画面：native 按游戏自己的设置（默认，通常是全屏）；fit 适应屏幕：
                               Unity 游戏改为窗口、正好等于菜单栏和 Dock 之间的可用区域
+  crossover <名字> [on|off|status]
+                              改用 CrossOver + D3DMetal 运行（3D 游戏更快；需要安装 CrossOver）
   template [status|build|remove]
                               运行库模板容器：预装 VC++、DirectX 组件、视频解码、DXVK，新游戏直接克隆
   list                        列出导入的游戏
@@ -279,6 +281,30 @@ cmd_run() {
   local exe="$1"
   shift
   [ -f "$exe" ] || die "找不到文件: $exe"
+
+  # 切到了 CrossOver + D3DMetal 的游戏
+  local mrt="$GAL_HOME/launch/$OPT_BOTTLE.meta"
+  if [ -f "$mrt" ] && [ "$(meta_get "$mrt" runtime)" = crossover ]; then
+    local cxsz="" cxt
+    if [ "$(meta_get "$mrt" display)" = fit ] && [ "$(meta_get "$mrt" engine)" = unity ]; then
+      cxsz="$(usable_desktop_size)"
+    fi
+    if [ -n "$cxsz" ]; then
+      set -- "$@" -screen-fullscreen 0 -screen-width "${cxsz%x*}" -screen-height "${cxsz#*x}"
+    fi
+    cxt=""
+    if [ "$(meta_get "$mrt" translate)" = on ]; then
+      cxt="$(meta_get "$mrt" translate_mode)"
+      ensure_translator || true
+    fi
+    if [ "$cxt" = ocr ]; then
+      curl -s -m 5 -X POST -d "{\"game\":\"$OPT_BOTTLE\",\"from\":\"$(meta_get "$mrt" from_lang | sed 's/^$/ja/')\"}" "$TRANSLATOR_URL/ocr/start" >/dev/null || true
+    fi
+    local cxrc=0
+    run_crossover "$OPT_BOTTLE" "$(meta_get "$mrt" exe)" "$(locale_of "$OPT_LANG")" "$@" || cxrc=$?
+    if [ "$cxt" = ocr ]; then curl -s -m 5 -X POST "$TRANSLATOR_URL/ocr/stop" >/dev/null || true; fi
+    exit "$cxrc"
+  fi
 
   # Unity 游戏在 Wine 11.0 稳定版里鼠标点不动（EnableMouseInPointer 没实现），
   # 装了开发版就在第一次启动前自动把容器切过去；手动指定过版本的容器不动
@@ -778,9 +804,14 @@ EOF
   } > "$tmp/fonts.txt"
   # regedit 要 UTF-16LE + BOM + CRLF
   { printf '\377\376'; awk '{ printf "%s\r\n", $0 }' "$tmp/fonts.txt" | iconv -f UTF-8 -t UTF-16LE; } > "$tmp/fonts.reg"
-  ( select_bottle_wine "$(basename "$p")"
-    cd "$p/drive_c" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1
-    WINEPREFIX="$p" wineserver -w ) || true
+  if [ -f "$p/cxbottle.conf" ]; then
+    # CrossOver 容器只能用 CrossOver 自己的 Wine，否则会被升级坏
+    "$CX_ROOT/bin/wine" --bottle "$(basename "$p")" regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1 || true
+  else
+    ( select_bottle_wine "$(basename "$p")"
+      cd "$p/drive_c" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1
+      WINEPREFIX="$p" wineserver -w ) || true
+  fi
   rm -rf "$tmp"
   echo "$FONTS_VERSION" > "$p/.gal-fonts"
   say "已装入中日文字体（$(ls "$fd" | wc -l | tr -d ' ') 个，链接到 macOS 自带字体）"
@@ -1180,6 +1211,130 @@ template_build() {
   sed 's/^/    /' "$report"
 }
 
+# ---------------------------------------------------------------------------
+# CrossOver + D3DMetal：苹果的 D3D→Metal 翻译层，3D 游戏比 DXVK + MoltenVK 快
+# 给游戏另建一个 CrossOver 容器 gal-<名字>，游戏文件 APFS 克隆过去，存档来回同步
+# ---------------------------------------------------------------------------
+CX_ROOT="${GAL_CX_ROOT:-/Applications/CrossOver.app/Contents/SharedSupport/CrossOver}"
+CX_BOTTLES="$HOME/Library/Application Support/CrossOver/Bottles"
+SAVE_DIRS="AppData/LocalLow AppData/Roaming Documents Saved_Games"
+
+have_crossover() { [ -x "$CX_ROOT/bin/wine" ]; }
+
+cx_user_dir() {
+  local d
+  for d in "$1"/drive_c/users/*; do
+    case "$(basename "$d")" in Public|public) continue ;; esac
+    [ -d "$d" ] && { echo "$d"; return 0; }
+  done
+  return 1
+}
+
+# 把 from 容器用户目录里的存档复制到 to 容器（合并覆盖）
+sync_saves() {
+  local fu tu s src
+  fu="$(cx_user_dir "$1")" || return 0
+  tu="$(cx_user_dir "$2")" || return 0
+  for s in $SAVE_DIRS; do
+    src="$fu/$(echo "$s" | tr '_' ' ')"
+    if [ -d "$src" ] && [ ! -L "$src" ]; then
+      mkdir -p "$tu/$(echo "$s" | tr '_' ' ')"
+      ditto "$src" "$tu/$(echo "$s" | tr '_' ' ')"
+    fi
+  done
+}
+
+# CrossOver 容器默认把桌面、文档等链接到 Mac 主目录，也有 Z:、Y: 盘，同样断开
+isolate_cx_bottle() {
+  local p="$1" u d
+  rm -f "$p/dosdevices/z:" "$p/dosdevices/y:"
+  u="$(cx_user_dir "$p")" || return 0
+  for d in Desktop Documents Downloads Music Pictures Videos "My Documents"; do
+    if [ -L "$u/$d" ]; then rm "$u/$d"; mkdir -p "$u/$d"; fi
+  done
+}
+
+cmd_crossover() {
+  local name="${1:-}" act="${2:-status}"
+  [ -n "$name" ] || die "用法: gal crossover <名字> [on|off|status]"
+  local m="$GAL_HOME/launch/$name.meta"
+  [ -f "$m" ] || die "没有导入过 $name"
+  [ "$(meta_get "$m" route)" = wine ] || die "只有 Wine 路线的游戏能用 CrossOver"
+  local cx="gal-$name"
+  local cxp="$CX_BOTTLES/$cx"
+  local dir bottle cur
+  dir="$(meta_get "$m" dir)"
+  bottle="$(meta_get "$m" bottle)"
+  cur="$(meta_get "$m" runtime)"
+  [ -n "$cur" ] || cur=wine
+
+  case "$act" in
+    status)
+      say "当前用: ${cur}（wine = 自带 Wine + DXVK，crossover = CrossOver + D3DMetal）"
+      have_crossover || say "没有安装 CrossOver" ;;
+    on)
+      have_crossover || die "没有安装 CrossOver（/Applications/CrossOver.app）"
+      [ -d "$HOME/Library/Application Support/CrossOver" ] || [ -f "$HOME/Library/Preferences/com.codeweavers.CrossOver.plist" ] \
+        || die "请先打开一次 CrossOver，在弹窗里选择试用（或输入注册信息），然后再执行"
+      if [ ! -d "$cxp" ]; then
+        say "新建 CrossOver 容器 $cx（D3DMetal）"
+        "$CX_ROOT/bin/cxbottle" --bottle "$cx" --create --template win10_64 \
+          --description "GalBox: $(meta_get "$m" title)" \
+          --param "EnvironmentVariables:CX_GRAPHICS_BACKEND=d3dmetal" \
+          --param "EnvironmentVariables:WINEMSYNC=1" >/dev/null || die "创建 CrossOver 容器失败"
+      fi
+      grep -q 'CX_GRAPHICS_BACKEND' "$cxp/cxbottle.conf" 2>/dev/null \
+        || warn "cxbottle.conf 里没有找到 D3DMetal 设置，请在 CrossOver 的容器设置里手动选 D3DMetal"
+      isolate_cx_bottle "$cxp"
+      local dest="$cxp/drive_c/Games/$name"
+      if [ ! -d "$dest" ]; then
+        say "克隆游戏文件（APFS 克隆，不占额外空间）"
+        mkdir -p "$cxp/drive_c/Games"
+        cp -c -R "$dir" "$dest"
+      fi
+      if [ -n "$bottle" ] && [ -d "$BOTTLES/$bottle" ]; then
+        say "同步存档到 CrossOver 容器"
+        sync_saves "$BOTTLES/$bottle" "$cxp"
+      fi
+      install_cjk_fonts "$cxp"
+      # 开着 Unity 机翻的话，BepInEx 已随游戏文件克隆过来，还要在 CrossOver 容器里放行 winhttp.dll
+      case "$(meta_get "$m" translate_mode)" in
+        unity_mono|unity_il2cpp)
+          if [ "$(meta_get "$m" translate)" = on ]; then
+            "$CX_ROOT/bin/wine" --bottle "$cx" reg add 'HKCU\Software\Wine\DllOverrides' /v winhttp /t REG_SZ /d native,builtin /f >/dev/null 2>&1 || true
+          fi ;;
+      esac
+      meta_set "$m" runtime crossover
+      meta_set "$m" cx_bottle "$cx"
+      say "已改用 CrossOver + D3DMetal，下次启动生效" ;;
+    off)
+      if [ "$cur" = crossover ] && [ -d "$cxp" ] && [ -n "$bottle" ]; then
+        say "把存档同步回原容器"
+        sync_saves "$cxp" "$BOTTLES/$bottle"
+      fi
+      meta_set "$m" runtime wine
+      say "已改回自带 Wine（CrossOver 容器 $cx 保留，可随时切回）" ;;
+    *) die "用法: gal crossover <名字> [on|off|status]" ;;
+  esac
+}
+
+# 用 CrossOver 启动；参数: <名字> <exe 相对路径> <语言> [游戏参数...]
+run_crossover() {
+  local name="$1" rel="$2" loc="$3"
+  shift 3
+  local cx="gal-$name"
+  local cxp="$CX_BOTTLES/$cx"
+  [ -d "$cxp" ] || die "CrossOver 容器 $cx 不存在，执行 gal crossover $name on"
+  local gdir="$cxp/drive_c/Games/$name"
+  local exe="$gdir/$rel"
+  [ -f "$exe" ] || die "找不到 $exe"
+  isolate_cx_bottle "$cxp"
+  if [ -n "$loc" ]; then export LC_ALL="$loc" LANG="$loc"; fi
+  say "CrossOver $(defaults read /Applications/CrossOver.app/Contents/Info CFBundleShortVersionString 2>/dev/null) + D3DMetal  容器: $cx  程序: $(basename "$exe")"
+  cd "$(dirname "$exe")"
+  "$CX_ROOT/bin/wine" --bottle "$cx" --cx-app "$exe" "$@"
+}
+
 # exe 是 32 位还是 64 位：x86 / x64
 pe_arch() {
   local off mach
@@ -1418,6 +1573,7 @@ main() {
     translate)    cmd_translate "$@" ;;
     template)     cmd_template "$@" ;;
     display)      cmd_display "$@" ;;
+    crossover)    cmd_crossover "$@" ;;
     fetch)        cmd_fetch "$@" ;;
     launcher)     cmd_launcher "$@" ;;
     dxvk)         cmd_dxvk "$@" ;;
