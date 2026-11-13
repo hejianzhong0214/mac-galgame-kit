@@ -28,3 +28,5 @@
 
 # GalBox 编译产物
 /app/build/
+__pycache__/
+*.pyc

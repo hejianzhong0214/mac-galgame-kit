@@ -27,7 +27,7 @@ swiftc -O -swift-version 5 -parse-as-library \
 cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/bin/gal" "$APP/Contents/Resources/kit/bin/gal"
 chmod +x "$APP/Contents/Resources/kit/bin/gal"
-cp "$ROOT/share/"* "$APP/Contents/Resources/kit/share/"
+find "$ROOT/share" -maxdepth 1 -type f -exec cp {} "$APP/Contents/Resources/kit/share/" \;
 
 echo "==> 编译 GalTranslator（翻译中转）"
 TA="$APP/Contents/Resources/kit/GalTranslator.app"
