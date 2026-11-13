@@ -1258,10 +1258,15 @@ sync_saves() {
   done
 }
 
-# CrossOver 容器默认把桌面、文档等链接到 Mac 主目录，也有 Z:、Y: 盘，同样断开
+# CrossOver 容器默认把桌面、文档等链接到 Mac 主目录，还有 Y:（主目录）和 Z:（整个磁盘）。
+# 断开桌面、文档和 Y:；Z: 不能动：CrossOver 要通过它找自己的文件，没有 Z: 或指向别处都会段错误
 isolate_cx_bottle() {
   local p="$1" u d
-  rm -f "$p/dosdevices/z:" "$p/dosdevices/y:"
+  rm -f "$p/dosdevices/y:"
+  if [ ! -e "$p/dosdevices/z:" ] || [ "$(readlink "$p/dosdevices/z:")" != "/" ]; then
+    rm -f "$p/dosdevices/z:"
+    ln -s / "$p/dosdevices/z:"
+  fi
   u="$(cx_user_dir "$p")" || return 0
   for d in Desktop Documents Downloads Music Pictures Videos "My Documents"; do
     if [ -L "$u/$d" ]; then rm "$u/$d"; mkdir -p "$u/$d"; fi
