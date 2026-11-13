@@ -73,6 +73,27 @@ GalBox 背后调用的是 `gal import`，命令行也能直接用：
 ./bin/gal import -l ja /path/to/游戏文件夹或zip
 ```
 
+### 内置机翻
+
+游戏的“…”菜单里有“开启机翻”。翻译用 DeepSeek（在 GalBox 设置里填 API key），按引擎自动选择方式：
+
+- **Unity**：XUnity 直接把游戏内文字换成中文。
+- **Ren'Py**：注入翻译脚本。
+- **RPG Maker MV/MZ**：整包离线翻译。
+- **吉里吉里等视觉小说**：屏幕识别对话框，译文显示在悬浮字幕窗。
+
+详见 [docs/translation.md](docs/translation.md)。
+
+### 运行库模板
+
+GalBox 设置里可以构建一个“运行库模板容器”。它预装了以下组件，之后导入的游戏都直接克隆它（APFS 克隆，几乎不占空间），启动时自动加载这些 DLL：
+
+- VC++ 2005–2022、DirectX 9/10/11 的 d3dx 组件、XACT 音频：全部来自微软官方下载。
+- LAVFilters 视频解码。
+- DXVK。
+
+命令行用 `gal template build`。注意它要在 Mac 的桌面会话里运行，SSH 里直接跑的话，安装程序会因为没有窗口而失败。
+
 ## 快速开始
 
 需要先装好 [Homebrew](https://brew.sh)。
@@ -104,6 +125,9 @@ Mac 连不上 GitHub 时 Homebrew 装不了 Wine，改用离线安装：在能�
 | 命令 | 作用 |
 | --- | --- |
 | `gal import [-l 语言] <exe\|文件夹\|zip>` | 一键导入（GalBox 用的就是它） |
+| `gal translate <名字> [on\|off\|status]` | 开关机翻 |
+| `gal template [status\|build\|remove]` | 运行库模板容器 |
+| `gal fetch <组件...>` | 下载并校验组件 |
 | `gal list` / `gal remove <名字>` | 列出 / 删除导入的游戏 |
 | `gal doctor` | 检查环境 |
 | `gal setup` | 一次性安装依赖 |
