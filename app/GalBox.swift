@@ -14,7 +14,12 @@ enum Paths {
     static let launch = galHome.appendingPathComponent("launch")
     static let logs = galHome.appendingPathComponent("logs")
     static let appLog = logs.appendingPathComponent("galbox.log")
+    static let translateConfig = galHome.appendingPathComponent("config/translate.json")
+    static let translator = kit.appendingPathComponent("GalTranslator.app")
+    static let templateReady = galHome.appendingPathComponent("bottles/_template/.gal-template-ready")
 }
+
+let translatorURL = "http://127.0.0.1:47011"
 
 let engineTitles: [String: String] = [
     "renpy": "Ren'Py", "macapp": "macOS 版", "mz": "RPG Maker MZ", "mv": "RPG Maker MV",
@@ -38,12 +43,14 @@ struct Game: Identifiable, Hashable {
     var bottle: String
     var dir: String
     var imported: String
+    var translate: Bool
 
     var subtitle: String {
         let e = engineTitles[engine] ?? engine
         let r = route == "nw" ? "原生 NW.js" : "Wine"
         let l = languages.first { $0.0 == lang }?.1 ?? lang
-        return route == "nw" ? "\(e) · \(r)" : "\(e) · \(r) · \(l)"
+        let t = translate ? " · 机翻已开" : ""
+        return route == "nw" ? "\(e) · \(r)\(t)" : "\(e) · \(r) · \(l)\(t)"
     }
 }
 
@@ -117,7 +124,8 @@ final class Model: ObservableObject {
             list.append(Game(
                 id: name, title: kv["title"] ?? name, engine: kv["engine"] ?? "",
                 route: kv["route"] ?? "wine", lang: kv["lang"] ?? "ja",
-                bottle: kv["bottle"] ?? "", dir: kv["dir"] ?? "", imported: kv["imported"] ?? ""))
+                bottle: kv["bottle"] ?? "", dir: kv["dir"] ?? "", imported: kv["imported"] ?? "",
+                translate: kv["translate"] == "on"))
         }
         games = list.sorted { $0.imported > $1.imported }
     }
@@ -212,6 +220,113 @@ final class Model: ObservableObject {
         gal(["remove", g.id]) { _ in Model.shared.refresh() }
     }
 
+    func setTranslate(_ g: Game, _ on: Bool) {
+        busy = true
+        append("\n▶ \(on ? "开启" : "关闭")机翻：\(g.title)\n")
+        gal(["translate", g.id, on ? "on" : "off"]) { st in
+            let m = Model.shared
+            m.append(st == 0 ? "✓ 完成\n" : "✗ 失败（退出码 \(st)）\n")
+            m.busy = false
+            m.refresh()
+        }
+    }
+
+    // MARK: 设置
+
+    @Published var apiKey = ""
+    @Published var model = "deepseek-chat"
+    @Published var baseURL = "https://api.deepseek.com"
+    @Published var testResult = ""
+    @Published var templateStatus = ""
+
+    func loadSettings() {
+        if let d = try? Data(contentsOf: Paths.translateConfig),
+           let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+            apiKey = j["apiKey"] as? String ?? ""
+            model = (j["model"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "deepseek-chat"
+            baseURL = (j["baseURL"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "https://api.deepseek.com"
+        }
+        templateStatus = FileManager.default.fileExists(atPath: Paths.templateReady.path)
+            ? ((try? String(contentsOf: Paths.templateReady, encoding: .utf8)) ?? "已就绪")
+            : "还没有构建"
+    }
+
+    func saveSettings() {
+        let j: [String: Any] = [
+            "provider": "deepseek",
+            "apiKey": apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            "model": model.trimmingCharacters(in: .whitespaces),
+            "baseURL": baseURL.trimmingCharacters(in: .whitespaces),
+        ]
+        let fm = FileManager.default
+        try? fm.createDirectory(at: Paths.translateConfig.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let d = try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted]) {
+            try? d.write(to: Paths.translateConfig, options: .atomic)
+            // key 只给自己看
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Paths.translateConfig.path)
+        }
+    }
+
+    // 确保 GalTranslator 在运行，返回是否就绪
+    func ensureTranslator() async -> Bool {
+        if await translatorHealthy() { return true }
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = false
+        cfg.addsToRecentItems = false
+        _ = try? await NSWorkspace.shared.openApplication(at: Paths.translator, configuration: cfg)
+        for _ in 0..<20 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if await translatorHealthy() { return true }
+        }
+        return false
+    }
+
+    private func translatorHealthy() async -> Bool {
+        guard let u = URL(string: translatorURL + "/health") else { return false }
+        var req = URLRequest(url: u)
+        req.timeoutInterval = 2
+        guard let (d, _) = try? await URLSession.shared.data(for: req) else { return false }
+        return String(decoding: d, as: UTF8.self) == "ok"
+    }
+
+    func testTranslate() {
+        saveSettings()
+        testResult = "测试中…"
+        Task { @MainActor in
+            guard await self.ensureTranslator() else {
+                self.testResult = "GalTranslator 没有启动"
+                return
+            }
+            let sample = "先輩、今日も一緒に帰りませんか？"
+            var comps = URLComponents(string: translatorURL + "/translate")!
+            comps.queryItems = [
+                .init(name: "from", value: "ja"), .init(name: "to", value: "zh-CN"),
+                .init(name: "text", value: sample),
+            ]
+            var req = URLRequest(url: comps.url!)
+            req.timeoutInterval = 120
+            do {
+                let (d, r) = try await URLSession.shared.data(for: req)
+                let s = String(decoding: d, as: UTF8.self)
+                let ok = (r as? HTTPURLResponse)?.statusCode == 200
+                self.testResult = ok ? "\(sample)\n→ \(s)" : "失败：\(s)"
+            } catch {
+                self.testResult = "失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func buildTemplate() {
+        busy = true
+        append("\n▶ 构建运行库模板容器（要下载约 200 MB，十几分钟）\n")
+        gal(["template", "build"]) { st in
+            let m = Model.shared
+            m.append(st == 0 ? "✓ 模板构建完成\n" : "✗ 模板构建失败（退出码 \(st)）\n")
+            m.busy = false
+            m.loadSettings()
+        }
+    }
+
     func reveal(_ g: Game) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: g.dir)])
     }
@@ -239,6 +354,7 @@ struct ContentView: View {
     @ObservedObject var m = Model.shared
     @State private var targeted = false
     @State private var pendingRemove: Game?
+    @State private var showSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -254,6 +370,12 @@ struct ContentView: View {
                 Button { m.refresh() } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
                     .help("刷新")
+                Button {
+                    m.loadSettings()
+                    showSettings = true
+                } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(.borderless)
+                    .help("设置：机翻服务、运行库模板")
             }
             library
             logView
@@ -269,6 +391,7 @@ struct ContentView: View {
         } message: { _ in
             Text("会删除它的容器和存档。你原来的游戏文件不会动。")
         }
+        .sheet(isPresented: $showSettings) { SettingsView(m: m) }
     }
 
     private var dropZone: some View {
@@ -339,6 +462,9 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
             }
             Menu {
+                Button(g.translate ? "关闭机翻" : "开启机翻") { m.setTranslate(g, !g.translate) }
+                    .disabled(m.busy)
+                Divider()
                 Button("在 Finder 中显示") { m.reveal(g) }
                 Button("查看运行日志") { m.openLog(g) }
                 Divider()
@@ -367,6 +493,92 @@ struct ContentView: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
             .onChange(of: m.log) { _ in proxy.scrollTo("end", anchor: .bottom) }
         }
+    }
+}
+
+// MARK: - 设置
+
+struct SettingsView: View {
+    @ObservedObject var m: Model
+    @Environment(\.dismiss) private var dismiss
+    @State private var showAdvanced = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("设置").font(.title2.weight(.semibold))
+
+            GroupBox("机翻服务（DeepSeek）") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("在 platform.deepseek.com 申请 API key 后填在这里。key 只保存在本机 ~/Games/gal/config/translate.json。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    SecureField("API key（sk-…）", text: $m.apiKey)
+                        .textFieldStyle(.roundedBorder)
+                    DisclosureGroup("高级", isExpanded: $showAdvanced) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField("模型", text: $m.model).textFieldStyle(.roundedBorder)
+                            TextField("接口地址", text: $m.baseURL).textFieldStyle(.roundedBorder)
+                            Text("兼容 OpenAI 格式的其他服务也能用，改接口地址和模型即可。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 6)
+                    }
+                    HStack {
+                        Button("保存") { m.saveSettings() }
+                        Button("保存并测试翻译") { m.testTranslate() }
+                    }
+                    if !m.testResult.isEmpty {
+                        Text(m.testResult)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(6)
+            }
+
+            GroupBox("屏幕识别权限") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("吉里吉里等视觉小说用屏幕识别取字，需要在系统设置里允许 GalTranslator 录制屏幕。第一次用时 macOS 会弹窗询问。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("打开系统设置的屏幕录制页") {
+                        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                            NSWorkspace.shared.open(u)
+                        }
+                    }
+                }
+                .padding(6)
+            }
+
+            GroupBox("运行库模板容器") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("预装 VC++ 2005–2022、DirectX 9/10/11 组件、XACT、LAVFilters 视频解码和 DXVK。新导入的游戏直接克隆它，启动时自动加载这些 DLL。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(m.templateStatus)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button(m.templateStatus.contains("ok") ? "重新构建" : "构建") { m.buildTemplate() }
+                        .disabled(m.busy)
+                }
+                .padding(6)
+            }
+
+            HStack {
+                Spacer()
+                Button("完成") {
+                    m.saveSettings()
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
     }
 }
 
