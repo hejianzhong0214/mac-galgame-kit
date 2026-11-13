@@ -104,6 +104,10 @@ usage() {
 
   import [-l 语言] [-n 名字] [--start] <exe | 游戏文件夹 | zip>
                               一键导入：识别引擎、建隔离容器、拷贝游戏、Unity 自动装 DXVK、生成启动器
+  translate <名字> [on|off|status]
+                              开关机翻（DeepSeek，经 GalTranslator）；Unity/Ren'Py 游戏内替换，
+                              RPG Maker MV/MZ 整包离线翻译，吉里吉里等用 Textractor + 悬浮字幕窗
+  fetch <组件...>             下载并校验组件（dxvk、bepinex5、xunity、textractor、winetricks 等）
   list                        列出导入的游戏
   remove <名字>               删除导入的游戏（只删容器里的副本，原始文件不动）
   doctor                      检查环境
@@ -283,6 +287,15 @@ cmd_run() {
   # Wine 升级时会重建 Z: 盘和指向主目录的链接，每次启动前重新断开
   if [ -f "$p/.gal-isolated" ]; then isolate_bottle "$p"; fi
 
+  # 开了机翻的游戏：先确保翻译中转在跑
+  local meta="$GAL_HOME/launch/$OPT_BOTTLE.meta" tmode=""
+  if [ -f "$meta" ] && [ "$(meta_get "$meta" translate)" = on ]; then
+    tmode="$(meta_get "$meta" translate_mode)"
+    GAL_FROM_LANG="$(meta_get "$meta" from_lang)"
+    export GAL_FROM_LANG="${GAL_FROM_LANG:-ja}"
+    if [ "$tmode" != rpgmaker ]; then ensure_translator || true; fi
+  fi
+
   local dir base
   dir="$(cd "$(dirname "$exe")" && pwd)"
   base="$(basename "$exe")"
@@ -300,6 +313,10 @@ cmd_run() {
   fi
 
   say "容器: $OPT_BOTTLE  $(wine --version 2>/dev/null)  区域: ${loc:-系统默认}  程序: $base"
+  if [ "$tmode" = textractor ]; then
+    run_with_textractor "$base" "$@"
+    exit 0
+  fi
   exec wine "$base" "$@"
 }
 
@@ -669,8 +686,320 @@ safe_name() {
   echo "$n"
 }
 
+# ---------------------------------------------------------------------------
+# 组件：固定版本和 sha256，按需下载到 ~/Games/gal/downloads
+# GitHub 连不上时依次尝试 GAL_GH_MIRRORS 里的镜像（下载后都按 sha256 校验）
+# ---------------------------------------------------------------------------
+GH_MIRRORS="${GAL_GH_MIRRORS:-https://gh-proxy.com/}"
+DL="$GAL_HOME/downloads"
+TRANSLATOR_URL="http://127.0.0.1:47011"
+
+# 名字 → 下载地址|文件名|sha256
+component_src() {
+  case "$1" in
+    dxvk) echo "https://github.com/Gcenx/DXVK-macOS/releases/download/v1.10.3-20230507-repack/dxvk-macOS-async-v1.10.3-20230507-repack.tar.gz|dxvk-macOS-async-v1.10.3-20230507-repack.tar.gz|acd1520ad105d8ef124a09c8e11a259a5dc8bdc565ad18e0e52693f9807b2477" ;;
+    bepinex5) echo "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.6/BepInEx_win_x64_5.4.23.6.zip|BepInEx_win_x64_5.4.23.6.zip|6c57a714a892efb4e9e1fef63d608a3391f30ec984031c465404e4ee381a0755" ;;
+    xunity) echo "https://github.com/bbepis/XUnity.AutoTranslator/releases/download/v5.6.3.1/XUnity.AutoTranslator-BepInEx-5.6.3.1.zip|XUnity.AutoTranslator-BepInEx-5.6.3.1.zip|6c3ff03aafe9708f25c2115c0c04c255b6a9d88e716896ae7bacb590a8777609" ;;
+    bepinex6-il2cpp) echo "https://builds.bepinex.dev/projects/bepinex_be/793/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793%2Bdbc82f0.zip|BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793.zip|5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" ;;
+    xunity-il2cpp) echo "https://github.com/bbepis/XUnity.AutoTranslator/releases/download/v5.6.3.1/XUnity.AutoTranslator-BepInEx-IL2CPP-5.6.3.1.zip|XUnity.AutoTranslator-BepInEx-IL2CPP-5.6.3.1.zip|f1d4d3151a061edfcda815e4472fe1f1de8756bdc23708c9b5ebb9bfe736fb1f" ;;
+    textractor) echo "https://github.com/Artikash/Textractor/releases/download/v5.2.0/Textractor-5.2.0-Zip-Version-English-Only.zip|Textractor-5.2.0-Zip-Version-English-Only.zip|3efdcf390261fcfb6a44220113c68b06eba22a3ef441ac618208238b52ee7974" ;;
+    lavfilters-x64) echo "https://github.com/Nevcairiel/LAVFilters/releases/download/0.83/LAVFilters-0.83-x64.zip|LAVFilters-0.83-x64.zip|0126982f47157bb86a6dbb43c4f332f7f98beba9ad552c19b65f9db2e7d4f186" ;;
+    lavfilters-x86) echo "https://github.com/Nevcairiel/LAVFilters/releases/download/0.83/LAVFilters-0.83-x86.zip|LAVFilters-0.83-x86.zip|8189505b593f25ff939f4a070135ec09f417d1d505012f79f43cbb247c7f21b2" ;;
+    winetricks) echo "https://raw.githubusercontent.com/Winetricks/winetricks/20260125/src/winetricks|winetricks-20260125|431f82fc74000e6c864409f1d8fb495d696c03928808e3e8acffc45179312a7b" ;;
+    *) return 1 ;;
+  esac
+}
+
+# 下载并校验组件，输出本地路径
+fetch_component() {
+  local info url file sum
+  info="$(component_src "$1")" || die "未知组件 $1"
+  url="${info%%|*}"; info="${info#*|}"
+  file="${info%%|*}"; sum="${info#*|}"
+  local dest="$DL/$file"
+  if [ -f "$dest" ] && [ "$(shasum -a 256 "$dest" | cut -d' ' -f1)" = "$sum" ]; then
+    echo "$dest"; return 0
+  fi
+  mkdir -p "$DL"
+  local urls="$url" m u ok=1
+  case "$url" in
+    https://github.com/*|https://raw.githubusercontent.com/*)
+      for m in $GH_MIRRORS; do urls="$urls $m$url"; done ;;
+  esac
+  for u in $urls; do
+    say "下载 $file" >&2
+    if curl -fL -sS --retry 2 --connect-timeout 15 -m 1800 -C - -o "$dest.part" "$u"; then ok=0; break; fi
+  done
+  [ "$ok" = 0 ] || die "下载失败: $file"
+  if [ "$(shasum -a 256 "$dest.part" | cut -d' ' -f1)" != "$sum" ]; then
+    rm -f "$dest.part"
+    die "校验失败（文件可能被改动）: $file"
+  fi
+  mv "$dest.part" "$dest"
+  echo "$dest"
+}
+
+cmd_fetch() {
+  [ $# -ge 1 ] || die "用法: gal fetch <组件...>（dxvk bepinex5 xunity bepinex6-il2cpp xunity-il2cpp textractor lavfilters-x64 lavfilters-x86 winetricks）"
+  local c
+  for c in "$@"; do say "$(fetch_component "$c")"; done
+}
+
 find_dxvk() {
-  find "$GAL_HOME/downloads" -maxdepth 1 -name 'dxvk-macOS-*.tar.gz' -not -name '*builtin*' 2>/dev/null | sort | tail -1
+  fetch_component dxvk 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# 机翻
+# ---------------------------------------------------------------------------
+meta_set() {
+  local f="$1" k="$2" v="$3"
+  if grep -q "^$k=" "$f"; then
+    sed -i '' "s|^$k=.*|$k=$v|" "$f"
+  else
+    echo "$k=$v" >> "$f"
+  fi
+}
+
+translator_ready() {
+  curl -s -m 2 "$TRANSLATOR_URL/health" >/dev/null 2>&1
+}
+
+# 确保 GalTranslator 在运行（它装在脚本旁边：kit/GalTranslator.app）
+ensure_translator() {
+  translator_ready && return 0
+  local app="$SCRIPT_DIR/../GalTranslator.app"
+  if [ ! -d "$app" ]; then warn "找不到 GalTranslator.app，用 app/build.sh --install 装上"; return 1; fi
+  open -g -j "$app"
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    translator_ready && return 0
+    sleep 0.5
+  done
+  warn "GalTranslator 没有响应，机翻不可用"
+  return 1
+}
+
+has_translate_key() {
+  local c="$GAL_HOME/config/translate.json"
+  [ -f "$c" ] && grep -qE '"(apiKey|provider)"[[:space:]]*:[[:space:]]*"[^"]+' "$c"
+}
+
+# 引擎 → 机翻方式
+translate_mode() {
+  local engine="$1" dir="$2" route="$3"
+  case "$engine" in
+    unity) if [ -f "$dir/GameAssembly.dll" ]; then echo unity_il2cpp; else echo unity_mono; fi ;;
+    renpy) echo renpy ;;
+    mv|mz) echo rpgmaker ;;
+    kirikiri|siglus|reallive|catsystem2|bgi|wolf|nscripter|rgss1|rgss2|rgss3|exe)
+      if [ "$route" = wine ]; then echo textractor; else echo none; fi ;;
+    *) echo none ;;
+  esac
+}
+
+mode_title() {
+  case "$1" in
+    unity_mono) echo "XUnity.AutoTranslator（BepInEx 5），游戏内直接替换文字" ;;
+    unity_il2cpp) echo "XUnity.AutoTranslator（BepInEx 6 IL2CPP），游戏内直接替换文字" ;;
+    renpy) echo "注入 Ren'Py 翻译脚本，游戏内直接替换文字" ;;
+    rpgmaker) echo "整包离线翻译 data 目录（原文件自动备份）" ;;
+    textractor) echo "Textractor 抓取文本，显示在悬浮字幕窗" ;;
+    *) echo "暂不支持" ;;
+  esac
+}
+
+# 解压 zip 到游戏目录，并把新增的顶层条目记到清单里，关闭机翻时按清单删除
+overlay_zip() {
+  local z="$1" d="$2" lst="$3" t
+  zipinfo -1 "$z" | cut -d/ -f1 | sort -u | while IFS= read -r t; do
+    if [ -n "$t" ] && [ ! -e "$d/$t" ]; then echo "$t" >> "$lst"; fi
+  done
+  ditto -x -k "$z" "$d"
+}
+
+remove_added() {
+  local d="$1" lst="$d/.galbox-added" t
+  [ -f "$lst" ] || return 0
+  while IFS= read -r t; do
+    case "$t" in ""|/*|*..*) continue ;; esac
+    rm -rf "${d:?}/$t"
+  done < "$lst"
+  rm -f "$lst"
+}
+
+bottle_reg() {
+  local bottle="$1"
+  shift
+  ( select_bottle_wine "$bottle"
+    cd "$BOTTLES/$bottle/drive_c" && WINEPREFIX="$BOTTLES/$bottle" WINEDEBUG=-all wine reg "$@" >/dev/null 2>&1
+    WINEPREFIX="$BOTTLES/$bottle" wineserver -w ) || true
+}
+
+tr_unity_on() {
+  local dir="$1" bottle="$2" il2cpp="$3" lang="$4"
+  local a b
+  if [ "$il2cpp" = 1 ]; then
+    a="$(fetch_component bepinex6-il2cpp)"; b="$(fetch_component xunity-il2cpp)"
+  else
+    a="$(fetch_component bepinex5)"; b="$(fetch_component xunity)"
+  fi
+  overlay_zip "$a" "$dir" "$dir/.galbox-added"
+  overlay_zip "$b" "$dir" "$dir/.galbox-added"
+  mkdir -p "$dir/BepInEx/config"
+  cat > "$dir/BepInEx/config/AutoTranslatorConfig.ini" <<EOF
+[Service]
+Endpoint=CustomTranslate
+FallbackEndpoint=
+
+[Custom]
+Url=$TRANSLATOR_URL/translate
+EnableShortDelay=True
+
+[General]
+Language=zh-CN
+FromLanguage=$lang
+
+[Behaviour]
+MaxCharactersPerTranslation=1000
+EnableUIResizing=True
+EOF
+  # BepInEx 靠游戏目录里的 winhttp.dll 加载
+  bottle_reg "$bottle" add 'HKCU\Software\Wine\DllOverrides' /v winhttp /t REG_SZ /d native,builtin /f
+  if [ "$il2cpp" = 1 ]; then
+    warn "IL2CPP 游戏第一次启动要生成互操作程序集，会卡在黑屏一两分钟，之后就快了"
+  fi
+}
+
+tr_unity_off() {
+  local dir="$1" bottle="$2"
+  remove_added "$dir"
+  bottle_reg "$bottle" delete 'HKCU\Software\Wine\DllOverrides' /v winhttp /f
+}
+
+tr_renpy_on() {
+  local dir="$1" lang="$2"
+  local g="$dir/game"
+  [ -d "$g" ] || die "找不到 Ren'Py 的 game 目录: $g"
+  local lst="$dir/.galbox-added"
+  sed "s|@FROM@|$lang|g; s|@URL@|$TRANSLATOR_URL|g" "$SCRIPT_DIR/../share/renpy_galbox_translate.rpy" > "$g/zz_galbox_translate.rpy"
+  # Ren'Py 只能用游戏目录里的字体；拷一份系统自带的简体中文字体进去
+  cp "/System/Library/Fonts/Hiragino Sans GB.ttc" "$g/galbox_cjk.ttc"
+  printf '%s\n' game/zz_galbox_translate.rpy game/zz_galbox_translate.rpyc game/galbox_cjk.ttc >> "$lst"
+}
+
+tr_rpgmaker() {
+  local dir="$1" act="$2" lang="$3"
+  /usr/bin/python3 -I "$SCRIPT_DIR/../share/rpgmaker_translate.py" "$act" "$dir" "$lang" "$TRANSLATOR_URL"
+}
+
+tr_textractor_on() {
+  local bottle="$1"
+  local z dest="$BOTTLES/$bottle/drive_c/galbox"
+  z="$(fetch_component textractor)"
+  mkdir -p "$dest"
+  if [ ! -d "$dest/Textractor" ]; then ditto -x -k "$z" "$dest"; fi
+}
+
+tr_textractor_off() {
+  local bottle="$1"
+  rm -rf "${BOTTLES:?}/$bottle/drive_c/galbox/Textractor"
+}
+
+cmd_translate() {
+  local name="${1:-}" act="${2:-status}"
+  [ -n "$name" ] || die "用法: gal translate <名字> [on|off|status]"
+  local m="$GAL_HOME/launch/$name.meta"
+  [ -f "$m" ] || die "没有导入过 $name"
+  local engine dir bottle route lang cur mode
+  engine="$(meta_get "$m" engine)"
+  dir="$(meta_get "$m" dir)"
+  bottle="$(meta_get "$m" bottle)"
+  route="$(meta_get "$m" route)"
+  lang="$(meta_get "$m" from_lang)"
+  [ -n "$lang" ] || lang=ja
+  cur="$(meta_get "$m" translate)"
+  [ -n "$cur" ] || cur=off
+  mode="$(translate_mode "$engine" "$dir" "$route")"
+
+  case "$act" in
+    status)
+      say "引擎: $(engine_title "$engine")"
+      say "机翻方式: $(mode_title "$mode")"
+      say "当前: $cur"
+      ;;
+    on)
+      [ "$mode" != none ] || die "$(engine_title "$engine") 暂不支持机翻"
+      [ "$cur" != on ] || { say "已经是开启状态"; return 0; }
+      has_translate_key || warn "还没设置翻译服务（GalBox → 设置 → 填 DeepSeek API key），开启后游戏里会显示翻译失败"
+      say "开启机翻: $(mode_title "$mode")"
+      case "$mode" in
+        unity_mono) tr_unity_on "$dir" "$bottle" 0 "$lang" ;;
+        unity_il2cpp) tr_unity_on "$dir" "$bottle" 1 "$lang" ;;
+        renpy) tr_renpy_on "$dir" "$lang" ;;
+        rpgmaker) ensure_translator || die "需要 GalTranslator"; tr_rpgmaker "$dir" on "$lang" ;;
+        textractor) tr_textractor_on "$bottle" ;;
+      esac
+      meta_set "$m" translate on
+      meta_set "$m" translate_mode "$mode"
+      say "已开启。下次启动游戏生效"
+      ;;
+    off)
+      [ "$cur" = on ] || { say "本来就是关闭状态"; return 0; }
+      case "$mode" in
+        unity_mono|unity_il2cpp) tr_unity_off "$dir" "$bottle" ;;
+        renpy) remove_added "$dir" ;;
+        rpgmaker) tr_rpgmaker "$dir" off "$lang" ;;
+        textractor) tr_textractor_off "$bottle" ;;
+      esac
+      meta_set "$m" translate off
+      say "已关闭，游戏恢复原样"
+      ;;
+    *) die "用法: gal translate <名字> [on|off|status]" ;;
+  esac
+}
+
+# exe 是 32 位还是 64 位：x86 / x64
+pe_arch() {
+  local off mach
+  off="$(od -An -tu4 -j60 -N4 "$1" | tr -d ' ')"
+  mach="$(od -An -tx2 -j$((off + 4)) -N2 "$1" | tr -d ' ')"
+  if [ "$mach" = "8664" ]; then echo x64; else echo x86; fi
+}
+
+# Textractor 模式启动：先起游戏，找到它的 Windows 进程号，再让 TextractorCLI 附加上去，
+# 抓到的文本交给 textractor_bridge.py 发到字幕窗
+run_with_textractor() {
+  local base="$1"
+  shift
+  local cli="C:\\galbox\\Textractor\\$(pe_arch "$base")\\TextractorCLI.exe"
+  local unix_cli="$WINEPREFIX/drive_c/galbox/Textractor/$(pe_arch "$base")/TextractorCLI.exe"
+  if [ ! -f "$unix_cli" ]; then
+    warn "容器里没有 Textractor，按普通方式启动"
+    exec wine "$base" "$@"
+  fi
+
+  wine "$base" "$@" &
+  local gpid=$! winpid="" i
+  for i in $(seq 1 60); do
+    sleep 1
+    winpid="$(wine tasklist /fo csv /nh 2>/dev/null | tr -d '\r' | awk -F'","' -v n="$base" 'tolower(substr($1,2))==tolower(n) {print $2; exit}')"
+    [ -n "$winpid" ] && break
+    kill -0 "$gpid" 2>/dev/null || break
+  done
+  if [ -z "$winpid" ]; then
+    warn "没找到游戏进程，Textractor 没有附加"
+    wait "$gpid"
+    return
+  fi
+  say "游戏进程 $winpid，附加 Textractor（$(pe_arch "$base")）"
+  # 先等游戏初始化几秒再附加；CLI 的标准输入要一直开着，否则它会退出
+  ( sleep 3; printf 'attach -P%s\n' "$winpid"; while kill -0 "$gpid" 2>/dev/null; do sleep 2; done ) \
+    | wine "$cli" 2>/dev/null \
+    | /usr/bin/python3 -I "$SCRIPT_DIR/../share/textractor_bridge.py" "$TRANSLATOR_URL" "${GAL_FROM_LANG:-ja}" &
+  local tpid=$!
+  wait "$gpid"
+  kill "$tpid" 2>/dev/null || true
 }
 
 # 一键导入：exe / 游戏文件夹 / zip → 隔离容器 + 启动器
@@ -847,6 +1176,8 @@ main() {
     cfg)          cmd_cfg "$@" ;;
     kill)         cmd_kill "$@" ;;
     wine)         cmd_wine "$@" ;;
+    translate)    cmd_translate "$@" ;;
+    fetch)        cmd_fetch "$@" ;;
     launcher)     cmd_launcher "$@" ;;
     dxvk)         cmd_dxvk "$@" ;;
     start)        cmd_start "$@" ;;
