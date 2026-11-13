@@ -173,11 +173,6 @@ GalBox 窗口里的拖放和按钮也已人工试用确认。
 
 还没验证：`gal nw` 和 NW.js 路线、游戏内视频播放。遇到问题看 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
-## 贡献者
-
-- [hejianzhong0214](https://github.com/hejianzhong0214)：项目发起、需求与真机测试
-- [Claude](https://github.com/claude)（Anthropic）：方案设计、`gal` 脚本、GalBox、GalTranslator 的编写与调试
-
 ## 许可
 
 MIT
