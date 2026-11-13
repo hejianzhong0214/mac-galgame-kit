@@ -45,6 +45,7 @@ struct Game: Identifiable, Hashable {
     var imported: String
     var translate: Bool
     var displayFit: Bool
+    var wineDevel: Bool
 
     var subtitle: String {
         let e = engineTitles[engine] ?? engine
@@ -122,12 +123,16 @@ final class Model: ObservableObject {
                 }
             }
             let name = f.deletingPathExtension().lastPathComponent
+            let wineFile = Paths.galHome.appendingPathComponent("bottles/\(kv["bottle"] ?? "")/.gal-wine")
+            let wineApp = (try? String(contentsOf: wineFile, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             list.append(Game(
                 id: name, title: kv["title"] ?? name, engine: kv["engine"] ?? "",
                 route: kv["route"] ?? "wine", lang: kv["lang"] ?? "ja",
                 bottle: kv["bottle"] ?? "", dir: kv["dir"] ?? "", imported: kv["imported"] ?? "",
                 translate: kv["translate"] == "on",
-                displayFit: (kv["display"] ?? "native") == "fit"))
+                displayFit: (kv["display"] ?? "native") == "fit",
+                wineDevel: wineApp == "Wine Devel"))
         }
         games = list.sorted { $0.imported > $1.imported }
     }
@@ -220,6 +225,18 @@ final class Model: ObservableObject {
 
     func remove(_ g: Game) {
         gal(["remove", g.id]) { _ in Model.shared.refresh() }
+    }
+
+    // 切换容器用的 Wine：开发版修好了 Unity 6 鼠标点不动的问题
+    func setWineDevel(_ g: Game, _ on: Bool) {
+        busy = true
+        append("\n▶ \(g.title) 改用 Wine \(on ? "开发版" : "稳定版")（会顺带升级容器，存档不受影响）\n")
+        gal(["wine", "-b", g.bottle, on ? "devel" : "stable"]) { st in
+            let m = Model.shared
+            m.append(st == 0 ? "✓ 完成，重新启动游戏生效\n" : "✗ 失败（退出码 \(st)）\n")
+            m.busy = false
+            m.refresh()
+        }
     }
 
     func setDisplay(_ g: Game, fit: Bool) {
@@ -473,6 +490,9 @@ struct ContentView: View {
                 if g.route != "nw" {
                     Toggle("画面适应屏幕", isOn: Binding(
                         get: { g.displayFit }, set: { m.setDisplay(g, fit: $0) }))
+                    Toggle("使用 Wine 开发版（修鼠标点不动）", isOn: Binding(
+                        get: { g.wineDevel }, set: { m.setWineDevel(g, $0) }))
+                        .disabled(m.busy || m.running.contains(g.id))
                 }
                 Divider()
                 Button("在 Finder 中显示") { m.reveal(g) }

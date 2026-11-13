@@ -112,7 +112,7 @@ Unity 6 等较新版本会调用 `EnableMouseInPointer`，改用“指针消息�
    ./bin/gal setup --wine-tarball /path/to/wine-devel-11.21-osx64.tar.xz
    ```
 
-2. 已导入的游戏切过去（会顺带升级容器，存档不受影响）：
+2. 已导入的游戏切过去（会顺带升级容器，存档不受影响）。GalBox 里在游戏的“…”菜单勾选“使用 Wine 开发版”即可，命令行是：
 
    ```bash
    ./bin/gal wine -b 容器名 devel
