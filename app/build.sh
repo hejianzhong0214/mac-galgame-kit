@@ -44,7 +44,14 @@ if [ "$INSTALL" = 1 ]; then
   cp -R "$APP" "$HOME/Applications/"
   # 让 Finder / Dock 认出新图标和文件类型
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HOME/Applications/GalBox.app" || true
-  echo "==> 已安装到 ~/Applications/GalBox.app"
+  # 启动器调用的是 ~/Games/gal/kit 里的脚本；GalBox 启动时也会同步，这里先同步一次，免得新旧脚本混用
+  KIT="$HOME/Games/gal/kit"
+  mkdir -p "$KIT"
+  if [ -d "$KIT/bin" ]; then rm -r "$KIT/bin"; fi
+  if [ -d "$KIT/share" ]; then rm -r "$KIT/share"; fi
+  cp -R "$APP/Contents/Resources/kit/bin" "$APP/Contents/Resources/kit/share" "$KIT/"
+  echo "==> 已安装到 ~/Applications/GalBox.app，并更新 ~/Games/gal/kit"
+  if pgrep -x GalBox >/dev/null; then echo "==> GalBox 正在运行，重新打开它才会用上新版本"; fi
 else
   echo "==> 完成: $APP"
 fi
