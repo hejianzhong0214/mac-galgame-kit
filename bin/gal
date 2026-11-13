@@ -326,6 +326,8 @@ cmd_run() {
   export WINEDEBUG="${WINEDEBUG:--all}"
   export WINEMSYNC=1
   export WINEESYNC=1
+  # 我们用的是 DXVK-macOS 的 async 版：着色器后台编译，减少第一次进场景时的卡顿
+  export DXVK_ASYNC="${DXVK_ASYNC:-1}"
   if [ -n "$loc" ]; then
     export LC_ALL="$loc"
     export LANG="$loc"
