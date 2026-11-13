@@ -118,7 +118,7 @@ Unity 6 等较新版本会调用 `EnableMouseInPointer`，改用“指针消息�
    ./bin/gal wine -b 容器名 devel
    ```
 
-装了开发版之后，`gal import` / GalBox 新导入的 Unity 游戏会自动用开发版。查看某个容器用的版本：`gal wine -b 容器名`。
+装了开发版之后，Unity 游戏会自动用它：新导入的直接用开发版；已导入、还没指定过版本的，第一次启动前自动把容器切过去（日志里会提示“先切换容器”）。手动指定过版本的容器不会被改动。查看某个容器用的版本：`gal wine -b 容器名`。
 
 已验证（2026-11-13，MacBook Air M3）：Unity 6 游戏换到 Wine 11.21 后鼠标点击恢复正常，不再报 `EnableMouseInPointer failed`，DXVK 照常工作。
 
