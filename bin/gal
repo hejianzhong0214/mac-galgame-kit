@@ -819,7 +819,9 @@ overlay_zip() {
 }
 
 remove_added() {
-  local d="$1" lst="$d/.galbox-added" t
+  # 注意：同一条 local 里后面的值不能引用前面的变量，bash 会先展开再赋值
+  local d="$1" t
+  local lst="$d/.galbox-added"
   [ -f "$lst" ] || return 0
   while IFS= read -r t; do
     case "$t" in ""|/*|*..*) continue ;; esac
