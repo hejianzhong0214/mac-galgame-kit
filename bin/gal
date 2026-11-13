@@ -279,6 +279,17 @@ cmd_run() {
   local exe="$1"
   shift
   [ -f "$exe" ] || die "找不到文件: $exe"
+
+  # Unity 游戏在 Wine 11.0 稳定版里鼠标点不动（EnableMouseInPointer 没实现），
+  # 装了开发版就在第一次启动前自动把容器切过去；手动指定过版本的容器不动
+  local m0="$GAL_HOME/launch/$OPT_BOTTLE.meta"
+  if [ ! -f "$BOTTLES/$OPT_BOTTLE/.gal-wine" ] && [ -f "$m0" ] \
+     && [ "$(meta_get "$m0" engine)" = unity ] && wine_bin_of "Wine Devel" >/dev/null; then
+    say "Unity 游戏需要 Wine 开发版才能正常用鼠标，先切换容器（只有这一次）"
+    # 放在子 shell 里：cmd_wine 会重新解析选项，别覆盖这里的 -l 语言设置
+    ( cmd_wine -b "$OPT_BOTTLE" devel ) || warn "切换失败，按原来的版本启动"
+  fi
+
   select_bottle_wine "$OPT_BOTTLE"
   need_wine
 
