@@ -804,15 +804,21 @@ EOF
   } > "$tmp/fonts.txt"
   # regedit 要 UTF-16LE + BOM + CRLF
   { printf '\377\376'; awk '{ printf "%s\r\n", $0 }' "$tmp/fonts.txt" | iconv -f UTF-8 -t UTF-16LE; } > "$tmp/fonts.reg"
+  local rc=0
   if [ -f "$p/cxbottle.conf" ]; then
-    # CrossOver 容器只能用 CrossOver 自己的 Wine，否则会被升级坏
-    "$CX_ROOT/bin/wine" --bottle "$(basename "$p")" regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1 || true
+    # CrossOver 容器只能用 CrossOver 自己的 Wine，否则会被升级坏；
+    # 它在 SSH 等没有桌面会话的环境里会崩溃，失败就等下次从桌面启动时再试
+    "$CX_ROOT/bin/wine" --bottle "$(basename "$p")" regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1 || rc=$?
   else
     ( select_bottle_wine "$(basename "$p")"
       cd "$p/drive_c" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1
-      WINEPREFIX="$p" wineserver -w ) || true
+      WINEPREFIX="$p" wineserver -w ) || rc=$?
   fi
   rm -rf "$tmp"
+  if [ "$rc" != 0 ]; then
+    warn "字体登记没写进注册表（退出码 ${rc}），下次启动游戏时再试"
+    return 0
+  fi
   echo "$FONTS_VERSION" > "$p/.gal-fonts"
   say "已装入中日文字体（$(ls "$fd" | wc -l | tr -d ' ') 个，链接到 macOS 自带字体）"
 }
@@ -1329,6 +1335,7 @@ run_crossover() {
   local exe="$gdir/$rel"
   [ -f "$exe" ] || die "找不到 $exe"
   isolate_cx_bottle "$cxp"
+  install_cjk_fonts "$cxp"
   if [ -n "$loc" ]; then export LC_ALL="$loc" LANG="$loc"; fi
   say "CrossOver $(defaults read /Applications/CrossOver.app/Contents/Info CFBundleShortVersionString 2>/dev/null) + D3DMetal  容器: $cx  程序: $(basename "$exe")"
   cd "$(dirname "$exe")"
