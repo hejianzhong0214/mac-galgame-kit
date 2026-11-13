@@ -108,6 +108,8 @@ usage() {
                               开关机翻（DeepSeek，经 GalTranslator）；Unity/Ren'Py 游戏内替换，
                               RPG Maker MV/MZ 整包离线翻译，吉里吉里等用 Textractor + 悬浮字幕窗
   fetch <组件...>             下载并校验组件（dxvk、bepinex5、xunity、textractor、winetricks 等）
+  template [status|build|remove]
+                              运行库模板容器：预装 VC++、DirectX 组件、视频解码、DXVK，新游戏直接克隆
   list                        列出导入的游戏
   remove <名字>               删除导入的游戏（只删容器里的副本，原始文件不动）
   doctor                      检查环境
@@ -976,6 +978,95 @@ cmd_translate() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# 运行库模板容器：预装微软官方运行库、视频解码、DXVK，新游戏直接克隆它
+# ---------------------------------------------------------------------------
+TEMPLATE="$BOTTLES/_template"
+# winetricks 里要装的运行库（全部来自微软官方下载）
+TEMPLATE_VERBS="vcrun2005 vcrun2008 vcrun2010 vcrun2012 vcrun2013 vcrun2022 d3dx9 d3dx10_43 d3dx11_43 d3dcompiler_43 xact xact_x64"
+
+template_ready() {
+  [ -f "$TEMPLATE/.gal-template-ready" ]
+}
+
+cmd_template() {
+  local act="${1:-status}"
+  case "$act" in
+    status)
+      if template_ready; then
+        say "模板容器已就绪（$(cat "$TEMPLATE/.gal-wine" 2>/dev/null || echo 默认 Wine)），新导入的游戏会克隆它"
+        sed 's/^/    /' "$TEMPLATE/.gal-template-ready"
+      else
+        say "还没有模板容器。执行 gal template build 构建（要下载约 200 MB 微软运行库，十几分钟）"
+      fi ;;
+    build) template_build ;;
+    remove)
+      if [ -d "$TEMPLATE" ]; then rm -rf "${TEMPLATE:?}"; fi
+      say "已删除模板容器（已导入的游戏不受影响）" ;;
+    *) die "用法: gal template [status|build|remove]" ;;
+  esac
+}
+
+template_build() {
+  local app="Wine Stable"
+  if wine_bin_of "Wine Devel" >/dev/null; then app="Wine Devel"; fi
+  local bin
+  bin="$(wine_bin_of "$app")" || die "没有安装 Wine"
+
+  if [ -d "$TEMPLATE" ]; then
+    say "删除旧模板，重新构建"
+    rm -rf "${TEMPLATE:?}"
+  fi
+  mkdir -p "$TEMPLATE"
+  echo "$app" > "$TEMPLATE/.gal-wine"
+  cmd_bottle _template
+  isolate_bottle "$TEMPLATE"
+  touch "$TEMPLATE/.gal-isolated"
+
+  local report="$TEMPLATE/.gal-template-report"
+  : > "$report"
+
+  # 1. DXVK（D3D10/11 → Metal）
+  cmd_dxvk -b _template "$(fetch_component dxvk)" && echo "dxvk ok" >> "$report"
+
+  # 2. 微软运行库，逐个装，一个失败不影响其他
+  local wt v
+  wt="$(fetch_component winetricks)"
+  if ! have cabextract && [ -x /opt/homebrew/bin/cabextract ]; then PATH="/opt/homebrew/bin:$PATH"; fi
+  have cabextract || warn "没有 cabextract（brew install cabextract），d3dx9、xact 等会装不上"
+  for v in $TEMPLATE_VERBS; do
+    say "安装 $v"
+    if ( cd "$TEMPLATE/drive_c" && WINEPREFIX="$TEMPLATE" WINE="$bin/wine" WINESERVER="$bin/wineserver" \
+         WINEDEBUG=-all /bin/sh "$wt" -q --unattended "$v" ) > "$GAL_HOME/logs/template-$v.log" 2>&1; then
+      echo "$v ok" >> "$report"
+    else
+      echo "$v 失败（见 logs/template-$v.log）" >> "$report"
+      warn "$v 安装失败，日志: $GAL_HOME/logs/template-$v.log"
+    fi
+  done
+
+  # 3. LAVFilters 视频解码（DirectShow），32/64 位都装并注册
+  local z64 z86 d64 d86 f
+  z64="$(fetch_component lavfilters-x64)"
+  z86="$(fetch_component lavfilters-x86)"
+  d64="$TEMPLATE/drive_c/Program Files/LAVFilters"
+  d86="$TEMPLATE/drive_c/Program Files (x86)/LAVFilters"
+  mkdir -p "$d64" "$d86"
+  ditto -x -k "$z64" "$d64"
+  ditto -x -k "$z86" "$d86"
+  for f in LAVSplitter.ax LAVVideo.ax LAVAudio.ax; do
+    ( cd "$TEMPLATE/drive_c" && WINEPREFIX="$TEMPLATE" WINEDEBUG=-all "$bin/wine" regsvr32 /s "C:\\Program Files\\LAVFilters\\$f" ) >/dev/null 2>&1
+    ( cd "$TEMPLATE/drive_c" && WINEPREFIX="$TEMPLATE" WINEDEBUG=-all "$bin/wine" 'C:\windows\syswow64\regsvr32.exe' /s "C:\\Program Files (x86)\\LAVFilters\\$f" ) >/dev/null 2>&1
+  done
+  echo "lavfilters ok" >> "$report"
+
+  WINEPREFIX="$TEMPLATE" "$bin/wineserver" -w || true
+  isolate_bottle "$TEMPLATE"
+  cp "$report" "$TEMPLATE/.gal-template-ready"
+  say "模板容器构建完成:"
+  sed 's/^/    /' "$report"
+}
+
 # exe 是 32 位还是 64 位：x86 / x64
 pe_arch() {
   local off mach
@@ -1095,15 +1186,23 @@ cmd_import() {
     mkdir -p "$GAL_HOME/games"
   else
     bottle="$name"
-    # Unity 6 靠 EnableMouseInPointer 收鼠标，Wine 11.0 没实现；装了开发版就用开发版
-    if [ "$engine" = unity ] && wine_bin_of "Wine Devel" >/dev/null; then
-      mkdir -p "$BOTTLES/$bottle"
-      echo "Wine Devel" > "$BOTTLES/$bottle/.gal-wine"
-      use_wine "Wine Devel"
-      say "Unity 游戏，使用 Wine 开发版（$(wine --version)）"
+    if template_ready; then
+      # 克隆运行库模板（APFS 克隆，几乎不占空间），运行库、视频解码、DXVK 都已经装好
+      say "克隆运行库模板容器"
+      cp -c -R "$TEMPLATE" "$BOTTLES/$bottle"
+      rm -f "$BOTTLES/$bottle/.gal-template-ready" "$BOTTLES/$bottle/.gal-template-report"
+      select_bottle_wine "$bottle"
+    else
+      # Unity 6 靠 EnableMouseInPointer 收鼠标，Wine 11.0 没实现；装了开发版就用开发版
+      if [ "$engine" = unity ] && wine_bin_of "Wine Devel" >/dev/null; then
+        mkdir -p "$BOTTLES/$bottle"
+        echo "Wine Devel" > "$BOTTLES/$bottle/.gal-wine"
+        use_wine "Wine Devel"
+        say "Unity 游戏，使用 Wine 开发版（$(wine --version)）"
+      fi
+      need_wine
+      cmd_bottle "$bottle"
     fi
-    need_wine
-    cmd_bottle "$bottle"
     isolate_bottle "$BOTTLES/$bottle"
     touch "$BOTTLES/$bottle/.gal-isolated"
     dest="$BOTTLES/$bottle/drive_c/Games/$name"
@@ -1123,7 +1222,8 @@ cmd_import() {
     perl -0pi -e 's/"name"\s*:\s*""/"name": "game"/' "$dest/package.json"
     write_launcher "$name" nw "$dest"
   else
-    if [ "$engine" = unity ]; then
+    # 克隆的模板里已经有 DXVK
+    if [ "$engine" = unity ] && ! grep -q '^"d3d11"="native"' "$BOTTLES/$bottle/user.reg" 2>/dev/null; then
       local dx
       dx="$(find_dxvk)"
       if [ -n "$dx" ]; then
@@ -1201,6 +1301,7 @@ main() {
     kill)         cmd_kill "$@" ;;
     wine)         cmd_wine "$@" ;;
     translate)    cmd_translate "$@" ;;
+    template)     cmd_template "$@" ;;
     fetch)        cmd_fetch "$@" ;;
     launcher)     cmd_launcher "$@" ;;
     dxvk)         cmd_dxvk "$@" ;;
