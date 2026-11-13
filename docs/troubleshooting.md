@@ -104,6 +104,40 @@ Unity 游戏全屏时按整块屏幕出图（MacBook Air 13 寸是 1470×956，�
 
 注意：macOS 版 Wine 不支持虚拟桌面（`explorer /desktop=…` 会被忽略），所以没法用虚拟桌面来限制画面大小；非 Unity 游戏如果也出现这个问题，在游戏自己的设置里改成窗口模式或较小的分辨率。
 
+## 3D 游戏太卡：改用 CrossOver + D3DMetal
+
+DXVK + MoltenVK 要多翻译一层，CPU 开销大。苹果的 D3DMetal 直接把 D3D11/12 转成 Metal，CrossOver 自带：
+
+```bash
+./bin/gal crossover 游戏名 on
+```
+
+GalBox 里是游戏“…”菜单的“改用 CrossOver + D3DMetal”。会另建一个 CrossOver 容器 `gal-游戏名`，游戏文件 APFS 克隆过去，存档来回同步；`off` 切回。
+
+实测（MacBook Air M3，Unity 6 HDRP 游戏）：CPU 占用从约 250% 降到约 100%，但显卡仍有 80% 多，这类游戏瓶颈在显卡本身，帧数提升有限。
+
+注意：
+
+- CrossOver 容器必须保留 Z: 盘（指向整个磁盘），否则 CrossOver 会段错误；所以这种模式下游戏能读到 Mac 上的文件。Y: 盘和桌面、文档等链接会被去掉。
+- DLSS → MetalFX（`D3DM_ENABLE_METALFX`）只在 macOS 26 Tahoe 及以上可用；D3D12 在 D3DMetal 下缺 D3D11On12，Unity 游戏会退回 D3D11。
+- `D3DM_MAX_FPS` 可以锁帧率，减少发热。
+
+### 把 CrossOver 的 D3DMetal 换成新版 Game Porting Toolkit
+
+苹果开发者网站下载的 Game Porting Toolkit 里有更新的 D3DMetal。按它 Read Me 的做法替换 CrossOver 自带的（原文件改名为 `.old` 保留）：
+
+```bash
+cd /Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib64/apple_gptk
+mv external external.old; mv wine wine.old
+ditto "/Volumes/Evaluation environment for Windows games 4.0 beta 3/redist/lib/" .
+mv wine/x86_64-unix/nvngx-on-metalfx.so wine/x86_64-unix/nvngx.so
+mv wine/x86_64-windows/nvngx-on-metalfx.dll wine/x86_64-windows/nvngx.dll
+```
+
+再把新的 `nvngx.dll`、`nvapi64.dll` 复制到各个 CrossOver 容器的 `drive_c/windows/system32`。已在 CrossOver 26.3 + D3DMetal 4.0 beta 3 上验证可用。CrossOver 升级后会被覆盖，需要重做。
+
+不建议用 Gcenx 免费的 game-porting-toolkit 包代替 CrossOver：它的 Wine 是 7.7，没有修 Unity 6 鼠标问题的补丁。
+
 ## Unity 游戏画面正常但鼠标点不动
 
 Unity 6 等较新版本会调用 `EnableMouseInPointer`，改用“指针消息”接收鼠标。Wine 11.0 稳定版只有空实现，`Player.log` 里会有 `EnableMouseInPointer failed`，游戏收不到点击（[Wine bug 53847](https://bugs.winehq.org/show_bug.cgi?id=53847)）。Wine 开发分支在 2026 年 2–7 月补上了这部分，11.15 以后的开发版都包含。
