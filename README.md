@@ -113,6 +113,7 @@ Mac 连不上 GitHub 时 Homebrew 装不了 Wine，改用离线安装：在能�
 | `gal bottle <名字>` | 新建独立容器（给需要特殊组件的游戏用） |
 | `gal cfg [-b 容器]` | 打开 winecfg |
 | `gal kill [-b 容器]` | 结束容器里所有进程 |
+| `gal wine [-b 容器] [stable\|devel]` | 查看或切换容器用的 Wine 版本（Unity 6 鼠标点不动时切 devel） |
 | `gal launcher <名字> [-b 容器] <exe>` | 生成可双击的启动器 `~/Games/gal/launch/<名字>.command` |
 | `gal start <名字>` | 运行启动器（从 SSH 远程启动游戏必须用它） |
 | `gal dxvk [-b 容器] <tar.gz>` | 给容器装 DXVK，解决 Unity 等 D3D11 游戏图形初始化失败 |

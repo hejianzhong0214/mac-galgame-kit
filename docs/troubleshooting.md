@@ -84,6 +84,28 @@ Wine 自带的 D3D11 底层是 macOS 的 OpenGL 4.1，功能不够，较新的 U
 
 DXVK 也不行时用 D3DMetal：苹果的 D3D→Metal 翻译层，兼容性最好。CrossOver 自带；免费途径是 Sikarugir 等打包工具。
 
+## Unity 游戏画面正常但鼠标点不动
+
+Unity 6 等较新版本会调用 `EnableMouseInPointer`，改用“指针消息”接收鼠标。Wine 11.0 稳定版只有空实现，`Player.log` 里会有 `EnableMouseInPointer failed`，游戏收不到点击（[Wine bug 53847](https://bugs.winehq.org/show_bug.cgi?id=53847)）。Wine 开发分支在 2026 年 2–7 月补上了这部分，11.15 以后的开发版都包含。
+
+解决：装 Wine 开发版（与稳定版并存），只让 Unity 游戏的容器改用它。
+
+1. 从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-devel-*-osx64.tar.xz`，然后：
+
+   ```bash
+   ./bin/gal setup --wine-tarball /path/to/wine-devel-11.21-osx64.tar.xz
+   ```
+
+2. 已导入的游戏切过去（会顺带升级容器，存档不受影响）：
+
+   ```bash
+   ./bin/gal wine -b 容器名 devel
+   ```
+
+装了开发版之后，`gal import` / GalBox 新导入的 Unity 游戏会自动用开发版。查看某个容器用的版本：`gal wine -b 容器名`。
+
+已验证：Wine 11.21 下 Unity 6 游戏不再报 `EnableMouseInPointer failed`，DXVK 照常工作。
+
 ## 游戏卡住、关不掉
 
 ```bash
