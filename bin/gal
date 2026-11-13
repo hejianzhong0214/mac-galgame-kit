@@ -108,8 +108,8 @@ usage() {
                               开关机翻（DeepSeek，经 GalTranslator）；Unity/Ren'Py 游戏内替换，
                               RPG Maker MV/MZ 整包离线翻译，吉里吉里等用 Textractor + 悬浮字幕窗
   fetch <组件...>             下载并校验组件（dxvk、bepinex5、xunity、textractor、winetricks 等）
-  display <名字> [fit|native]  画面：fit 适应屏幕（默认；Unity 游戏改为窗口正好等于可用区域，
-                              不被菜单栏/刘海/Dock 挡住），native 按游戏自己的设置
+  display <名字> [fit|native]  画面：native 按游戏自己的设置（默认，通常是全屏）；fit 适应屏幕：
+                              Unity 游戏改为窗口、正好等于菜单栏和 Dock 之间的可用区域
   template [status|build|remove]
                               运行库模板容器：预装 VC++、DirectX 组件、视频解码、DXVK，新游戏直接克隆
   list                        列出导入的游戏
@@ -326,7 +326,7 @@ cmd_run() {
   local display="${GAL_DISPLAY:-native}" sz="" engine=""
   if [ -f "$meta" ]; then
     display="$(meta_get "$meta" display)"
-    [ -n "$display" ] || display=fit
+    [ -n "$display" ] || display=native
     engine="$(meta_get "$meta" engine)"
   fi
   if [ "$display" = fit ] && [ "$engine" = unity ]; then sz="$(usable_desktop_size)"; fi
@@ -369,7 +369,7 @@ cmd_display() {
   if [ -z "$mode" ]; then
     local cur
     cur="$(meta_get "$m" display)"
-    say "画面: ${cur:-fit}（fit = 适应屏幕，native = 原始）"
+    say "画面: ${cur:-native}（native = 按游戏设置，通常全屏；fit = 适应屏幕）"
     return 0
   fi
   case "$mode" in
@@ -1296,7 +1296,7 @@ cmd_import() {
     echo "dir=$dest"
     echo "exe=$rel"
     echo "source=$src"
-    echo "display=fit"
+    echo "display=native"
     echo "imported=$(date '+%Y-%m-%d %H:%M')"
   } > "$GAL_HOME/launch/$name.meta"
 

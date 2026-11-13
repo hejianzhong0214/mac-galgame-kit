@@ -88,13 +88,15 @@ DXVK 也不行时用 D3DMetal：苹果的 D3D→Metal 翻译层，兼容性最�
 
 Unity 游戏全屏时按整块屏幕出图（MacBook Air 13 寸是 1470×956，包括菜单栏和刘海那一条、以及 Dock 的位置），在 Mac 上会被菜单栏和 Dock 盖住一截。
 
-GalBox 导入的游戏默认开着“画面适应屏幕”（游戏的“…”菜单里可以关）：Unity 游戏启动时加上 `-screen-fullscreen 0 -screen-width … -screen-height …`，改成窗口模式，窗口正好等于菜单栏和 Dock 之间的可用区域，画面完整显示。命令行：
+先试**全屏**：游戏默认按自己的设置启动，多数情况下切到全屏（游戏设置里，或 Unity 游戏按 Alt+Enter）就能完整显示。
+
+全屏也不行时，在游戏的“…”菜单里勾选“画面适应屏幕”：Unity 游戏启动时会加上 `-screen-fullscreen 0 -screen-width … -screen-height …`，改成窗口模式，窗口正好等于菜单栏和 Dock 之间的可用区域。命令行：
 
 ```bash
 ./bin/gal display 游戏名 fit
 ```
 
-想要原来的全屏行为就设成 `native`。
+改回默认用 `native`。有的游戏会无视这些启动参数、自己把窗口设成整块屏幕大小，这种只能靠全屏或游戏内的分辨率设置。
 
 注意：macOS 版 Wine 不支持虚拟桌面（`explorer /desktop=…` 会被忽略），所以没法用虚拟桌面来限制画面大小；非 Unity 游戏如果也出现这个问题，在游戏自己的设置里改成窗口模式或较小的分辨率。
 

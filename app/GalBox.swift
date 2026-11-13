@@ -127,7 +127,7 @@ final class Model: ObservableObject {
                 route: kv["route"] ?? "wine", lang: kv["lang"] ?? "ja",
                 bottle: kv["bottle"] ?? "", dir: kv["dir"] ?? "", imported: kv["imported"] ?? "",
                 translate: kv["translate"] == "on",
-                displayFit: (kv["display"] ?? "fit") == "fit"))
+                displayFit: (kv["display"] ?? "native") == "fit"))
         }
         games = list.sorted { $0.imported > $1.imported }
     }
