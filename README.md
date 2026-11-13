@@ -43,11 +43,59 @@
 
 | 方案 | 费用 | 说明 |
 | --- | --- | --- |
-| **Homebrew Wine**（本仓库脚本默认） | 免费 | 2D galgame 足够，命令行可脚本化 |
-| **Sikarugir** | 免费 | 把游戏打包成独立 `.app`，可选 D3DMetal / DXVK，适合 Unity 等 3D 游戏 |
-| **CrossOver** | 付费，有试用 | 兼容性和省心程度最好，自带 D3DMetal 和 msync；预算允许就选它 |
+| **Gcenx 的 Wine 构建**（本仓库默认，稳定版 + 开发版并存） | 免费 | 2D galgame 足够；Unity 6 游戏自动用开发版（修鼠标）+ DXVK |
+| **CrossOver + D3DMetal** | 付费，有 14 天试用 | 3D 游戏 CPU 开销大幅降低；`gal crossover` 一键切换，安装见下方 |
+| **Sikarugir** | 免费 | 把游戏打包成独立 `.app`，可选 D3DMetal / DXVK |
 
 不推荐 Whisky（已停止维护）。
+
+## 商业软件和授权组件的安装
+
+本仓库**不包含、也不分发**任何商业软件或需要授权的组件，下面这些都要你自己从官方渠道下载，按各自的许可使用；`gal` 和 GalBox 只调用你已经装好的软件。
+
+### CrossOver（用 D3DMetal 跑 3D 游戏）
+
+1. 从 [codeweavers.com/crossover](https://www.codeweavers.com/crossover) 下载（中国大陆访问会转到官方代理 crossoverchina.com）。有 14 天免费试用，之后需要购买。
+2. 解压，把 `CrossOver.app` 拖进“应用程序”。可以先核对是不是官方签名：
+
+   ```bash
+   codesign -dv /Applications/CrossOver.app 2>&1 | grep -E "Authority|TeamIdentifier"
+   ```
+
+   应显示 `Developer ID Application: CodeWeavers Inc. (9C6B7X7Z8E)`。
+
+3. **先打开一次 CrossOver**，在弹窗里选“试用”（Try Now）或输入注册信息。不做这一步，命令行无法使用。
+4. 在 GalBox 游戏的“…”菜单选“改用 CrossOver + D3DMetal”，或执行：
+
+   ```bash
+   ./bin/gal crossover 游戏名 on
+   ```
+
+注意：CrossOver 容器必须保留指向整个磁盘的 Z: 盘（否则会崩溃），所以这种模式下游戏能读到 Mac 上的文件；试用期结束后可以用 `gal crossover 游戏名 off` 切回免费的 Wine，存档会同步回去。
+
+### Apple Game Porting Toolkit（可选：更新 CrossOver 里的 D3DMetal）
+
+1. 在 [developer.apple.com/games](https://developer.apple.com/games/) 下载 Game Porting Toolkit，需要用 Apple ID 登录（免费开发者账号即可）。
+2. 打开下载的 dmg，再打开里面的 “Evaluation environment for Windows games”。
+3. 按 [docs/troubleshooting.md](docs/troubleshooting.md) 里“把 CrossOver 的 D3DMetal 换成新版”一节替换。
+
+说明：
+
+- D3DMetal 只能按苹果的许可在自己的电脑上使用，不能再分发。
+- 要求 macOS 15 及以上；把 DLSS 转成 MetalFX 的功能要 macOS 26 及以上。
+- 不建议单独用 Gcenx 免费的 game-porting-toolkit 包代替 CrossOver：它的 Wine 是 7.7，Unity 6 游戏的鼠标点不动。
+
+### Parallels Desktop / VMware Fusion（第 3 档：Windows 虚拟机）
+
+只在 Wine 和 CrossOver 都被 DRM、反作弊卡住时才需要。
+
+- **Parallels Desktop**：从 [parallels.com](https://www.parallels.com) 下载，有 14 天试用，之后按订阅付费。安装后用它的安装助手可以直接下载 Windows 11 ARM。微软官方支持在 Apple 芯片 Mac 的 Parallels Desktop 里运行 Windows 11 专业版和企业版。
+- **VMware Fusion**：免费，从 Broadcom 官网下载（需要注册 Broadcom 账号）。Windows 11 ARM 镜像从[微软官网](https://www.microsoft.com/software-download/windows11arm64)下载。
+- **Windows 授权**：两者都需要你自己的正版 Windows 授权，未激活的 Windows 会有功能限制。
+- **资源**：建议给虚拟机 4 核、8 GB 内存；16 GB 内存的 Mac 开着虚拟机时尽量关掉其他应用。3D 性能比 CrossOver + D3DMetal 低。
+- **不要用 UTM / QEMU 玩游戏**：它们免费开源，但 Windows 虚拟机没有 3D 加速。
+
+本项目目前不控制虚拟机：在虚拟机里像在一台 Windows 电脑上一样安装和运行游戏即可。
 
 ## GalBox：拖进去就能玩
 
@@ -162,6 +210,8 @@ MacBook Air 没有风扇，持续高负载会降频。详细说明见 [docs/perf
 ## 关于上传到 GitHub
 
 这个仓库只放文档和脚本。`.gitignore` 已经排除了游戏本体、容器和存档目录，**不要把游戏文件、破解补丁或汉化包提交进来**。
+
+同样不要提交 CrossOver、Game Porting Toolkit（D3DMetal）、Parallels、VMware 的程序文件，或装好的 Windows 虚拟机镜像：它们的许可都不允许再分发。开源组件（Wine、DXVK、BepInEx 等）也由脚本在本机按固定版本下载并校验，不放进仓库。
 
 ## 状态
 
