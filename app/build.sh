@@ -29,6 +29,14 @@ cp "$ROOT/bin/gal" "$APP/Contents/Resources/kit/bin/gal"
 chmod +x "$APP/Contents/Resources/kit/bin/gal"
 cp "$ROOT/share/"* "$APP/Contents/Resources/kit/share/"
 
+echo "==> 编译 GalTranslator（翻译中转）"
+TA="$APP/Contents/Resources/kit/GalTranslator.app"
+mkdir -p "$TA/Contents/MacOS"
+swiftc -O -swift-version 5 -parse-as-library \
+  -target arm64-apple-macos13.0 \
+  -o "$TA/Contents/MacOS/GalTranslator" "$HERE/GalTranslator.swift"
+cp "$HERE/GalTranslator-Info.plist" "$TA/Contents/Info.plist"
+
 echo "==> 生成图标"
 ICONSET="$OUT/GalBox.iconset"
 if [ -d "$ICONSET" ]; then rm -r "$ICONSET"; fi
@@ -46,10 +54,13 @@ if [ "$INSTALL" = 1 ]; then
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HOME/Applications/GalBox.app" || true
   # 启动器调用的是 ~/Games/gal/kit 里的脚本；GalBox 启动时也会同步，这里先同步一次，免得新旧脚本混用
   KIT="$HOME/Games/gal/kit"
+  # 翻译中转在跑的话先退出，换成新版本
+  pkill -x GalTranslator 2>/dev/null || true
   mkdir -p "$KIT"
-  if [ -d "$KIT/bin" ]; then rm -r "$KIT/bin"; fi
-  if [ -d "$KIT/share" ]; then rm -r "$KIT/share"; fi
-  cp -R "$APP/Contents/Resources/kit/bin" "$APP/Contents/Resources/kit/share" "$KIT/"
+  for d in bin share GalTranslator.app; do
+    if [ -e "$KIT/$d" ]; then rm -r "$KIT/$d"; fi
+  done
+  cp -R "$APP/Contents/Resources/kit/"* "$KIT/"
   echo "==> 已安装到 ~/Applications/GalBox.app，并更新 ~/Games/gal/kit"
   if pgrep -x GalBox >/dev/null; then echo "==> GalBox 正在运行，重新打开它才会用上新版本"; fi
 else
