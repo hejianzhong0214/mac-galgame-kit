@@ -84,6 +84,20 @@ Wine 自带的 D3D11 底层是 macOS 的 OpenGL 4.1，功能不够，较新的 U
 
 DXVK 也不行时用 D3DMetal：苹果的 D3D→Metal 翻译层，兼容性最好。CrossOver 自带；免费途径是 Sikarugir 等打包工具。
 
+## 画面超出屏幕，上下被菜单栏、刘海或 Dock 挡住
+
+Unity 游戏全屏时按整块屏幕出图（MacBook Air 13 寸是 1470×956，包括菜单栏和刘海那一条、以及 Dock 的位置），在 Mac 上会被菜单栏和 Dock 盖住一截。
+
+GalBox 导入的游戏默认开着“画面适应屏幕”（游戏的“…”菜单里可以关）：Unity 游戏启动时加上 `-screen-fullscreen 0 -screen-width … -screen-height …`，改成窗口模式，窗口正好等于菜单栏和 Dock 之间的可用区域，画面完整显示。命令行：
+
+```bash
+./bin/gal display 游戏名 fit
+```
+
+想要原来的全屏行为就设成 `native`。
+
+注意：macOS 版 Wine 不支持虚拟桌面（`explorer /desktop=…` 会被忽略），所以没法用虚拟桌面来限制画面大小；非 Unity 游戏如果也出现这个问题，在游戏自己的设置里改成窗口模式或较小的分辨率。
+
 ## Unity 游戏画面正常但鼠标点不动
 
 Unity 6 等较新版本会调用 `EnableMouseInPointer`，改用“指针消息”接收鼠标。Wine 11.0 稳定版只有空实现，`Player.log` 里会有 `EnableMouseInPointer failed`，游戏收不到点击（[Wine bug 53847](https://bugs.winehq.org/show_bug.cgi?id=53847)）。Wine 开发分支在 2026 年 2–7 月补上了这部分，11.15 以后的开发版都包含。
