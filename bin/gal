@@ -225,7 +225,9 @@ cmd_bottle() {
 
   local p="$BOTTLES/$name"
   mkdir -p "$BOTTLES"
-  say "初始化容器: $p"
+  select_bottle_wine "$name"
+  need_wine
+  say "初始化容器: $p（$(wine --version 2>/dev/null)）"
 
   export WINEPREFIX="$p"
   export WINEDEBUG=-all
