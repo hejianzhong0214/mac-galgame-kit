@@ -303,6 +303,8 @@ cmd_run() {
   fi
   # Wine 升级时会重建 Z: 盘和指向主目录的链接，每次启动前重新断开
   if [ -f "$p/.gal-isolated" ]; then isolate_bottle "$p"; fi
+  # 没装过中日文字体的容器补上（只做一次）
+  install_cjk_fonts "$p"
 
   # 开了机翻的游戏：先确保翻译中转在跑
   local meta="$GAL_HOME/launch/$OPT_BOTTLE.meta" tmode=""
@@ -736,6 +738,50 @@ PY
   fi
 }
 
+# 容器的 C:\windows\Fonts 默认是空的。有些游戏（Unity 的普通文字、按文件读取字体的引擎）
+# 缺字时会去这里找系统字体，找不到就显示成方块。把 macOS 自带的中日文字体用 Windows 的
+# 常见文件名链接进来并登记到注册表（符号链接，不占空间）
+CJK_FONTS="msyh.ttc|/System/Library/Fonts/Hiragino Sans GB.ttc|Microsoft YaHei & Microsoft YaHei UI (TrueType)
+msyhbd.ttc|/System/Library/Fonts/STHeiti Medium.ttc|Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)
+simhei.ttc|/System/Library/Fonts/STHeiti Medium.ttc|SimHei (TrueType)
+simsun.ttc|/System/Library/Fonts/Supplemental/Songti.ttc|SimSun & NSimSun (TrueType)
+msgothic.ttc|/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc|MS Gothic & MS UI Gothic & MS PGothic (TrueType)
+meiryo.ttc|/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc|Meiryo & Meiryo Italic & Meiryo UI & Meiryo UI Italic (TrueType)
+meiryob.ttc|/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc|Meiryo Bold & Meiryo Bold Italic & Meiryo UI Bold & Meiryo UI Bold Italic (TrueType)
+ARIALUNI.TTF|/System/Library/Fonts/Supplemental/Arial Unicode.ttf|Arial Unicode MS (TrueType)"
+FONTS_VERSION=1
+
+install_cjk_fonts() {
+  local p="$1"
+  local fd="$p/drive_c/windows/Fonts"
+  [ -f "$p/.gal-fonts" ] && [ "$(cat "$p/.gal-fonts")" = "$FONTS_VERSION" ] && return 0
+  mkdir -p "$fd"
+  local tmp line file src name
+  tmp="$(mktemp -d)"
+  {
+    echo 'Windows Registry Editor Version 5.00'
+    echo
+    echo '[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]'
+    while IFS= read -r line; do
+      file="${line%%|*}"; line="${line#*|}"
+      src="${line%%|*}"; name="${line#*|}"
+      [ -f "$src" ] || continue
+      ln -sfn "$src" "$fd/$file"
+      printf '"%s"="%s"\n' "$name" "$file"
+    done <<EOF
+$CJK_FONTS
+EOF
+  } > "$tmp/fonts.txt"
+  # regedit 要 UTF-16LE + BOM + CRLF
+  { printf '\377\376'; awk '{ printf "%s\r\n", $0 }' "$tmp/fonts.txt" | iconv -f UTF-8 -t UTF-16LE; } > "$tmp/fonts.reg"
+  ( select_bottle_wine "$(basename "$p")"
+    cd "$tmp" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S fonts.reg >/dev/null 2>&1
+    WINEPREFIX="$p" wineserver -w ) || true
+  rm -rf "$tmp"
+  echo "$FONTS_VERSION" > "$p/.gal-fonts"
+  say "已装入中日文字体（$(ls "$fd" | wc -l | tr -d ' ') 个，链接到 macOS 自带字体）"
+}
+
 # 断开容器和 Mac 主目录的映射：去掉 Z: 盘，“文档/桌面”等改成容器内的普通文件夹
 isolate_bottle() {
   local p="$1"
@@ -1119,6 +1165,9 @@ template_build() {
     ( cd "$TEMPLATE/drive_c" && WINEPREFIX="$TEMPLATE" WINEDEBUG=-all "$bin/wine" 'C:\windows\syswow64\regsvr32.exe' /s "C:\\Program Files (x86)\\LAVFilters\\$f" ) >/dev/null 2>&1
   done
   echo "lavfilters ok" >> "$report"
+
+  # 4. 中日文字体（链接 macOS 自带字体）
+  install_cjk_fonts "$TEMPLATE" && echo "cjk-fonts ok" >> "$report"
 
   WINEPREFIX="$TEMPLATE" "$bin/wineserver" -w || true
   isolate_bottle "$TEMPLATE"
