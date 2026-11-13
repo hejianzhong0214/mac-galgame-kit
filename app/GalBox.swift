@@ -46,10 +46,11 @@ struct Game: Identifiable, Hashable {
     var translate: Bool
     var displayFit: Bool
     var wineDevel: Bool
+    var crossover: Bool
 
     var subtitle: String {
         let e = engineTitles[engine] ?? engine
-        let r = route == "nw" ? "原生 NW.js" : "Wine"
+        let r = route == "nw" ? "原生 NW.js" : (crossover ? "CrossOver + D3DMetal" : "Wine")
         let l = languages.first { $0.0 == lang }?.1 ?? lang
         let t = translate ? " · 机翻已开" : ""
         return route == "nw" ? "\(e) · \(r)\(t)" : "\(e) · \(r) · \(l)\(t)"
@@ -132,7 +133,8 @@ final class Model: ObservableObject {
                 bottle: kv["bottle"] ?? "", dir: kv["dir"] ?? "", imported: kv["imported"] ?? "",
                 translate: kv["translate"] == "on",
                 displayFit: (kv["display"] ?? "native") == "fit",
-                wineDevel: wineApp == "Wine Devel"))
+                wineDevel: wineApp == "Wine Devel",
+                crossover: kv["runtime"] == "crossover"))
         }
         games = list.sorted { $0.imported > $1.imported }
     }
@@ -228,6 +230,17 @@ final class Model: ObservableObject {
     }
 
     // 切换容器用的 Wine：开发版修好了 Unity 6 鼠标点不动的问题
+    func setCrossover(_ g: Game, _ on: Bool) {
+        busy = true
+        append("\n▶ \(g.title) \(on ? "改用 CrossOver + D3DMetal" : "改回自带 Wine")（存档会同步）\n")
+        gal(["crossover", g.id, on ? "on" : "off"]) { st in
+            let m = Model.shared
+            m.append(st == 0 ? "✓ 完成，重新启动游戏生效\n" : "✗ 失败（退出码 \(st)）\n")
+            m.busy = false
+            m.refresh()
+        }
+    }
+
     func setWineDevel(_ g: Game, _ on: Bool) {
         busy = true
         append("\n▶ \(g.title) 改用 Wine \(on ? "开发版" : "稳定版")（会顺带升级容器，存档不受影响）\n")
@@ -488,11 +501,20 @@ struct ContentView: View {
                 Button(g.translate ? "关闭机翻" : "开启机翻") { m.setTranslate(g, !g.translate) }
                     .disabled(m.busy)
                 if g.route != "nw" {
-                    Toggle("画面适应屏幕", isOn: Binding(
-                        get: { g.displayFit }, set: { m.setDisplay(g, fit: $0) }))
-                    Toggle("使用 Wine 开发版（修鼠标点不动）", isOn: Binding(
-                        get: { g.wineDevel }, set: { m.setWineDevel(g, $0) }))
+                    // 菜单里的 Toggle 在 macOS 上点了不一定触发，统一用按钮
+                    Button(g.displayFit ? "✓ 画面适应屏幕（点击关闭）" : "画面适应屏幕") {
+                        m.setDisplay(g, fit: !g.displayFit)
+                    }
+                    Button(g.crossover ? "✓ CrossOver + D3DMetal（点击改回自带 Wine）" : "改用 CrossOver + D3DMetal（3D 更快）") {
+                        m.setCrossover(g, !g.crossover)
+                    }
+                    .disabled(m.busy || m.running.contains(g.id))
+                    if !g.crossover {
+                        Button(g.wineDevel ? "✓ Wine 开发版（点击改回稳定版）" : "改用 Wine 开发版（修鼠标点不动）") {
+                            m.setWineDevel(g, !g.wineDevel)
+                        }
                         .disabled(m.busy || m.running.contains(g.id))
+                    }
                 }
                 Divider()
                 Button("在 Finder 中显示") { m.reveal(g) }
