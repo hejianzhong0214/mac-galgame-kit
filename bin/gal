@@ -328,7 +328,7 @@ cmd_run() {
   fi
   if [ "$display" = fit ]; then sz="$(usable_desktop_size)"; fi
   if [ -n "$sz" ]; then
-    say "画面: 适应屏幕（虚拟桌面 $sz）"
+    say "画面: 适应屏幕（虚拟桌面 ${sz}）"
     set -- explorer "/desktop=$OPT_BOTTLE,$sz" "$base" "$@"
   else
     set -- "$base" "$@"
@@ -375,7 +375,7 @@ cmd_display() {
     *) die "可选 fit（适应屏幕）或 native（原始）" ;;
   esac
   meta_set "$m" display "$mode"
-  say "已设置为 $mode，下次启动生效"
+  say "已设置为 ${mode}，下次启动生效"
 }
 
 cmd_cfg() {
