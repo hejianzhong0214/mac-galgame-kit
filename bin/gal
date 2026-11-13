@@ -997,8 +997,10 @@ run_with_textractor() {
     return
   fi
   say "游戏进程 ${winpid}，附加 Textractor（$(pe_arch "$base")）"
-  # 先等游戏初始化几秒再附加；CLI 的标准输入要一直开着，否则它会退出
-  ( sleep 3; printf 'attach -P%s\n' "$winpid"; while kill -0 "$gpid" 2>/dev/null; do sleep 2; done ) \
+  # 先等游戏初始化几秒再附加；CLI 用 UTF-16 读标准输入，命令要先转码；
+  # 标准输入要一直开着，否则它会退出
+  ( sleep 3; printf 'attach -P%s\r\n' "$winpid" | iconv -f UTF-8 -t UTF-16LE
+    while kill -0 "$gpid" 2>/dev/null; do sleep 2; done ) \
     | wine "$cli" 2>/dev/null \
     | /usr/bin/python3 -I "$SCRIPT_DIR/../share/textractor_bridge.py" "$TRANSLATOR_URL" "${GAL_FROM_LANG:-ja}" &
   local tpid=$!
