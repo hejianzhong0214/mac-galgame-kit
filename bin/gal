@@ -319,6 +319,13 @@ cmd_run() {
     run_with_textractor "$base" "$@"
     exit 0
   fi
+  if [ "$tmode" = ocr ]; then
+    curl -s -m 5 -X POST -d "{\"game\":\"$OPT_BOTTLE\",\"from\":\"$GAL_FROM_LANG\"}" "$TRANSLATOR_URL/ocr/start" >/dev/null || true
+    local rc=0
+    wine "$base" "$@" || rc=$?
+    curl -s -m 5 -X POST "$TRANSLATOR_URL/ocr/stop" >/dev/null || true
+    exit "$rc"
+  fi
   exec wine "$base" "$@"
 }
 
@@ -795,7 +802,11 @@ translate_mode() {
     renpy) echo renpy ;;
     mv|mz) echo rpgmaker ;;
     kirikiri|siglus|reallive|catsystem2|bgi|wolf|nscripter|rgss1|rgss2|rgss3|exe)
-      if [ "$route" = wine ]; then echo textractor; else echo none; fi ;;
+      # 默认用屏幕识别；Textractor 在 macOS 的 Wine 里不稳定（32 位注入后崩溃），只作实验选项
+      if [ "$route" != wine ]; then echo none
+      elif [ "${GAL_TRANSLATE_MODE:-}" = textractor ]; then echo textractor
+      else echo ocr
+      fi ;;
     *) echo none ;;
   esac
 }
@@ -806,7 +817,8 @@ mode_title() {
     unity_il2cpp) echo "XUnity.AutoTranslator（BepInEx 6 IL2CPP），游戏内直接替换文字" ;;
     renpy) echo "注入 Ren'Py 翻译脚本，游戏内直接替换文字" ;;
     rpgmaker) echo "整包离线翻译 data 目录（原文件自动备份）" ;;
-    textractor) echo "Textractor 抓取文本，显示在悬浮字幕窗" ;;
+    textractor) echo "Textractor 抓取文本，显示在悬浮字幕窗（实验）" ;;
+    ocr) echo "屏幕识别：框住对话框，macOS 自带文字识别读出日文，译文显示在悬浮字幕窗" ;;
     *) echo "暂不支持" ;;
   esac
 }
@@ -943,6 +955,7 @@ cmd_translate() {
         renpy) tr_renpy_on "$dir" "$lang" ;;
         rpgmaker) ensure_translator || die "需要 GalTranslator"; tr_rpgmaker "$dir" on "$lang" ;;
         textractor) tr_textractor_on "$bottle" ;;
+        ocr) say "第一次启动时 macOS 会请求屏幕录制权限，请允许 GalTranslator；之后把橙色识别框拖到游戏对话框上" ;;
       esac
       meta_set "$m" translate on
       meta_set "$m" translate_mode "$mode"
