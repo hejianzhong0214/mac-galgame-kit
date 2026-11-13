@@ -80,7 +80,7 @@ install_wine_tarball() {
   xattr -dr com.apple.quarantine "$RUNTIMES/$name" 2>/dev/null || true
   locate_wine
   have wine || die "安装后仍然找不到 wine"
-  say "已安装 $name（$("$RUNTIMES/$name/Contents/Resources/wine/bin/wine" --version 2>/dev/null)）"
+  say "已安装 ${name}（$("$RUNTIMES/$name/Contents/Resources/wine/bin/wine" --version 2>/dev/null)）"
 }
 
 has_rosetta() {
@@ -227,7 +227,7 @@ cmd_bottle() {
   mkdir -p "$BOTTLES"
   select_bottle_wine "$name"
   need_wine
-  say "初始化容器: $p（$(wine --version 2>/dev/null)）"
+  say "初始化容器: ${p}（$(wine --version 2>/dev/null)）"
 
   export WINEPREFIX="$p"
   export WINEDEBUG=-all
@@ -362,7 +362,7 @@ cmd_dxvk() {
       wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$d" /t REG_SZ /d native /f >/dev/null )
   done
   WINEPREFIX="$p" wineserver -w || true
-  say "DXVK 已装进容器 $OPT_BOTTLE（只影响这个容器）"
+  say "DXVK 已装进容器 ${OPT_BOTTLE}（只影响这个容器）"
 }
 
 # 生成可双击的启动器 ~/Games/gal/launch/<名字>.command
@@ -408,9 +408,9 @@ cmd_start() {
   local name="${1:-}"
   [ -n "$name" ] || die "用法: gal start <名字>"
   local f="$GAL_HOME/launch/$name.command"
-  [ -x "$f" ] || die "没有启动器 $f，先用 gal launcher 生成"
+  [ -x "$f" ] || die "没有启动器 ${f}，先用 gal launcher 生成"
   open "$f"
-  say "已在桌面会话里启动 $name，日志: $GAL_HOME/logs/$name.log"
+  say "已在桌面会话里启动 ${name}，日志: $GAL_HOME/logs/$name.log"
 }
 
 cmd_kill() {
@@ -446,7 +446,7 @@ cmd_wine() {
     staging) app="Wine Staging" ;;
     *) die "可选 stable / devel / staging" ;;
   esac
-  wine_bin_of "$app" >/dev/null || die "没有安装 $app，用 gal setup --wine-tarball <包> 安装"
+  wine_bin_of "$app" >/dev/null || die "没有安装 ${app}，用 gal setup --wine-tarball <包> 安装"
 
   # 先用旧版本结束容器里的进程，版本不同的 wineserver 互相管不了
   ( select_bottle_wine "$OPT_BOTTLE"; WINEPREFIX="$p" wineserver -k 2>/dev/null || true )
@@ -996,7 +996,7 @@ run_with_textractor() {
     wait "$gpid"
     return
   fi
-  say "游戏进程 $winpid，附加 Textractor（$(pe_arch "$base")）"
+  say "游戏进程 ${winpid}，附加 Textractor（$(pe_arch "$base")）"
   # 先等游戏初始化几秒再附加；CLI 的标准输入要一直开着，否则它会退出
   ( sleep 3; printf 'attach -P%s\n' "$winpid"; while kill -0 "$gpid" 2>/dev/null; do sleep 2; done ) \
     | wine "$cli" 2>/dev/null \
@@ -1053,7 +1053,7 @@ cmd_import() {
   gdir="$(dirname "$exe")"
   case "$gdir" in
     "$HOME"|"$HOME/Desktop"|"$HOME/Downloads"|"$HOME/Documents"|/|/Applications)
-      die "游戏要放在单独的文件夹里（现在在 $gdir），整个文件夹会被拷进容器" ;;
+      die "游戏要放在单独的文件夹里（现在在 ${gdir}），整个文件夹会被拷进容器" ;;
   esac
 
   local title rel engine
@@ -1163,7 +1163,7 @@ cmd_remove() {
     case "$dir" in "$GAL_HOME"/games/?*) rm -rf "$dir" ;; esac
   fi
   rm -f "$GAL_HOME/launch/$name.meta" "$GAL_HOME/launch/$name.command" "$GAL_HOME/logs/$name.log"
-  say "已删除 $name（原始文件没动）"
+  say "已删除 ${name}（原始文件没动）"
 }
 
 main() {
