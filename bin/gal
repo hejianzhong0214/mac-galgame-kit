@@ -999,16 +999,12 @@ run_with_textractor() {
   say "游戏进程 ${winpid}，附加 Textractor（$(pe_arch "$base")）"
   # 先等游戏初始化几秒再附加；CLI 用 UTF-16 读标准输入，命令要先转码；
   # 标准输入要一直开着，否则它会退出
-  # 识别不出引擎时 Textractor 不挂绘字函数，32 位游戏再补几个常用的 GDI 钩子
-  local arch hooks=""
-  arch="$(pe_arch "$base")"
-  if [ "$arch" = x86 ]; then
-    hooks="HQ10@0:gdi32.dll:TextOutW HQ18@0:gdi32.dll:ExtTextOutW HQ8@0:user32.dll:DrawTextW HW8@0:gdi32.dll:GetGlyphOutlineW HA8@0:gdi32.dll:GetGlyphOutlineA"
-  fi
+  # Textractor 附加后会自己识别引擎，并挂上 GDI 绘字函数（TextOut、GetGlyphOutline 等）
+  # 自定义钩子码可以写在 GAL_TEXTRACTOR_HOOKS 里（空格分隔），附加后发送
   ( sleep 3
     printf 'attach -P%s\r\n' "$winpid" | iconv -f UTF-8 -t UTF-16LE
     sleep 2
-    for h in $hooks; do printf '%s -P%s\r\n' "$h" "$winpid" | iconv -f UTF-8 -t UTF-16LE; done
+    for h in ${GAL_TEXTRACTOR_HOOKS:-}; do printf '%s -P%s\r\n' "$h" "$winpid" | iconv -f UTF-8 -t UTF-16LE; done
     while kill -0 "$gpid" 2>/dev/null; do sleep 2; done ) \
     | wine "$cli" 2>/dev/null \
     | /usr/bin/python3 -I "$SCRIPT_DIR/../share/textractor_bridge.py" "$TRANSLATOR_URL" "${GAL_FROM_LANG:-ja}" &
