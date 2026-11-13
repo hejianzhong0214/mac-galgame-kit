@@ -1302,6 +1302,7 @@ cmd_crossover() {
           --param "EnvironmentVariables:CX_GRAPHICS_BACKEND=d3dmetal" \
           --param "EnvironmentVariables:WINEMSYNC=1" >/dev/null || die "创建 CrossOver 容器失败"
       fi
+      cx_defaults "$cxp"
       grep -q 'CX_GRAPHICS_BACKEND' "$cxp/cxbottle.conf" 2>/dev/null \
         || warn "cxbottle.conf 里没有找到 D3DMetal 设置，请在 CrossOver 的容器设置里手动选 D3DMetal"
       isolate_cx_bottle "$cxp"
@@ -1337,6 +1338,23 @@ cmd_crossover() {
   esac
 }
 
+# 确保 CrossOver 容器配置的 [EnvironmentVariables] 里有某个变量（没有就加上，有就不动）
+ensure_cx_env() {
+  local conf="$1/cxbottle.conf" key="$2" val="$3"
+  [ -f "$conf" ] || return 0
+  grep -q "^\"$key\"" "$conf" && return 0
+  awk -v k="$key" -v v="$val" '
+    { print }
+    /^\[EnvironmentVariables\]/ && !done { printf "\"%s\" = \"%s\"\n", k, v; done = 1 }
+  ' "$conf" > "$conf.gal-tmp" && mv "$conf.gal-tmp" "$conf"
+}
+
+# CrossOver 容器的默认设置：D3DMetal；游戏开 DLSS 时由 D3DMetal 转成苹果的 MetalFX 超分辨率
+cx_defaults() {
+  ensure_cx_env "$1" CX_GRAPHICS_BACKEND d3dmetal
+  ensure_cx_env "$1" D3DM_ENABLE_METALFX 1
+}
+
 # 用 CrossOver 启动；参数: <名字> <exe 相对路径> <语言> [游戏参数...]
 run_crossover() {
   local name="$1" rel="$2" loc="$3"
@@ -1348,6 +1366,7 @@ run_crossover() {
   local exe="$gdir/$rel"
   [ -f "$exe" ] || die "找不到 $exe"
   isolate_cx_bottle "$cxp"
+  cx_defaults "$cxp"
   install_cjk_fonts "$cxp"
   if [ -n "$loc" ]; then export LC_ALL="$loc" LANG="$loc"; fi
   say "CrossOver $(defaults read /Applications/CrossOver.app/Contents/Info CFBundleShortVersionString 2>/dev/null) + D3DMetal  容器: $cx  程序: $(basename "$exe")"
