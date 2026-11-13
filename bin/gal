@@ -808,7 +808,7 @@ EOF
   if [ -f "$p/cxbottle.conf" ]; then
     # CrossOver 容器只能用 CrossOver 自己的 Wine，否则会被升级坏；
     # 它在 SSH 等没有桌面会话的环境里会崩溃，失败就等下次从桌面启动时再试
-    "$CX_ROOT/bin/wine" --bottle "$(basename "$p")" regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1 || rc=$?
+    cx_wine --bottle "$(basename "$p")" regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1 || rc=$?
   else
     ( select_bottle_wine "$(basename "$p")"
       cd "$p/drive_c" && WINEPREFIX="$p" WINEDEBUG=-all wine regedit /S 'C:\windows\temp\gal-fonts\fonts.reg' >/dev/null 2>&1
@@ -1227,6 +1227,14 @@ SAVE_DIRS="AppData/LocalLow AppData/Roaming Documents Saved_Games"
 
 have_crossover() { [ -x "$CX_ROOT/bin/wine" ]; }
 
+# 用干净的环境调用 CrossOver 的 wine：本脚本把自带 Wine 放在了 PATH 前面，
+# 还有 WINEPREFIX 等变量，混进 CrossOver 会让它段错误
+cx_wine() {
+  env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TMPDIR="${TMPDIR:-/tmp}" \
+    PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG="${LANG:-en_US.UTF-8}" LC_ALL="${LC_ALL:-}" \
+    "$CX_ROOT/bin/wine" "$@"
+}
+
 cx_user_dir() {
   local d
   for d in "$1"/drive_c/users/*; do
@@ -1307,7 +1315,7 @@ cmd_crossover() {
       case "$(meta_get "$m" translate_mode)" in
         unity_mono|unity_il2cpp)
           if [ "$(meta_get "$m" translate)" = on ]; then
-            "$CX_ROOT/bin/wine" --bottle "$cx" reg add 'HKCU\Software\Wine\DllOverrides' /v winhttp /t REG_SZ /d native,builtin /f >/dev/null 2>&1 || true
+            cx_wine --bottle "$cx" reg add 'HKCU\Software\Wine\DllOverrides' /v winhttp /t REG_SZ /d native,builtin /f >/dev/null 2>&1 || true
           fi ;;
       esac
       meta_set "$m" runtime crossover
@@ -1338,8 +1346,13 @@ run_crossover() {
   install_cjk_fonts "$cxp"
   if [ -n "$loc" ]; then export LC_ALL="$loc" LANG="$loc"; fi
   say "CrossOver $(defaults read /Applications/CrossOver.app/Contents/Info CFBundleShortVersionString 2>/dev/null) + D3DMetal  容器: $cx  程序: $(basename "$exe")"
+  # 容器断开了 Z: 盘，Mac 路径转不成 Windows 路径，直接传 Windows 路径
+  local wexe wdir
+  wexe="C:\\Games\\$name\\$(printf '%s' "$rel" | tr '/' '\\')"
+  wdir="C:\\Games\\$name\\$(dirname "$rel" | sed 's|^\.$||' | tr '/' '\\')"
+  wdir="${wdir%\\}"
   cd "$(dirname "$exe")"
-  "$CX_ROOT/bin/wine" --bottle "$cx" --cx-app "$exe" "$@"
+  cx_wine --bottle "$cx" --workdir "$wdir" --cx-app "$wexe" "$@"
 }
 
 # exe 是 32 位还是 64 位：x86 / x64
