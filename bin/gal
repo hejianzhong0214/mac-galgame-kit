@@ -173,7 +173,8 @@ cmd_doctor() {
 
 cmd_setup() {
   [ "$(uname -s)" = "Darwin" ] || die "这个脚本只支持 macOS"
-  have brew || die "请先安装 Homebrew: https://brew.sh"
+  # 非交互 shell（SSH、GalBox）里 brew 常常不在 PATH
+  if ! have brew && [ -x /opt/homebrew/bin/brew ]; then PATH="/opt/homebrew/bin:$PATH"; fi
 
   if ! has_rosetta; then
     say "安装 Rosetta 2"
@@ -188,6 +189,7 @@ cmd_setup() {
   fi
 
   if ! have wine; then
+    have brew || die "没有 Homebrew，装不了 Wine。请先装 Homebrew（https://brew.sh），或用 gal setup --wine-tarball <包> 离线安装"
     say "安装 Wine"
     if ! brew install --cask wine-stable; then
       warn "Homebrew 安装 Wine 失败（多半是连不上 GitHub）"
